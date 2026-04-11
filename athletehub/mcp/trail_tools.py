@@ -273,14 +273,16 @@ def trail_downhill_risk(
         speed_score = min(speed_cv * 100.0, 20.0)
         risk_score = grade_score + hr_drift_score + cadence_score_val + speed_score
 
-        seg_dist = abs((seg[-1].get("distance_m") or 0.0) - (seg[0].get("distance_m") or 0.0)) if len(seg) >= 2 else 0.0
+        end_dist = seg[-1].get("distance_m") or 0.0
+        start_dist = seg[0].get("distance_m") or 0.0
+        seg_dist = abs(end_dist - start_dist) if len(seg) >= 2 else 0.0
         weighted_risk += risk_score * seg_dist
         total_seg_dist += seg_dist
 
         segments_out.append(
             {
-                "start_km": round((seg[0].get("distance_m") or 0.0) / 1000.0, 2),
-                "end_km": round((seg[-1].get("distance_m") or 0.0) / 1000.0, 2),
+                "start_km": round(start_dist / 1000.0, 2),
+                "end_km": round(end_dist / 1000.0, 2),
                 "loss_m": round(loss, 1),
                 "avg_grade": round(avg_grade, 1),
                 "risk_score": round(risk_score, 1),

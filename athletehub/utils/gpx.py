@@ -273,7 +273,7 @@ def _build_summary(
     # Use unrounded lengths for accurate summary math when available
     if unrounded_lengths is not None:
         total_tech_m = sum(
-            l for s, l in zip(sections, unrounded_lengths) if s["type"] == "technical"
+            length for s, length in zip(sections, unrounded_lengths) if s["type"] == "technical"
         )
     else:
         total_tech_m = sum(s["length_m"] for s in sections if s["type"] == "technical")
