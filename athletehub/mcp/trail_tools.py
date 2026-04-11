@@ -463,16 +463,33 @@ def trail_cutoff_risk(
     climb_paces: list[float] = []
     descent_paces: list[float] = []
 
-    for act in activities:
-        records = fetch_all(
-            """
-            SELECT altitude_m, speed_mps, distance_m, elapsed_time_s
+    activity_ids = [act["id"] for act in activities]
+    records_by_activity: dict[int, list[dict]] = {}
+    if activity_ids:
+        placeholders = ", ".join("?" for _ in activity_ids)
+        all_records = fetch_all(
+            f"""
+            SELECT activity_id, altitude_m, speed_mps, distance_m, elapsed_time_s
             FROM activity_records
-            WHERE activity_id = ?
-            ORDER BY sample_index
+            WHERE activity_id IN ({placeholders})
+            ORDER BY activity_id, sample_index
             """,
-            (act["id"],),
+            tuple(activity_ids),
         )
+        for rec in all_records:
+            activity_id = rec["activity_id"]
+            bucket = records_by_activity.setdefault(activity_id, [])
+            bucket.append(
+                {
+                    "altitude_m": rec["altitude_m"],
+                    "speed_mps": rec["speed_mps"],
+                    "distance_m": rec["distance_m"],
+                    "elapsed_time_s": rec["elapsed_time_s"],
+                }
+            )
+
+    for act in activities:
+        records = records_by_activity.get(act["id"], [])
         if len(records) < 2:
             continue
         enriched = _enrich_records_with_grade(records)
