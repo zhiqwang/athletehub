@@ -98,16 +98,16 @@ def trail_technical_section_detector(
         # Restrict to safe relative paths within raw_data_dir.
         p = Path(gpx_path)
         if p.is_absolute() or ".." in p.parts or (p.parts and p.parts[0].startswith("~")):
-            return {"source": "gpx", "error": "gpx_path must be a relative path without '..' components and must not start with '~'"}
+            return {"source": "input", "error": "gpx_path must be a relative path without '..' components and must not start with '~'"}
         if p.suffix.lower() != ".gpx":
-            return {"source": "gpx", "error": "gpx_path must have a .gpx extension"}
+            return {"source": "input", "error": "gpx_path must have a .gpx extension"}
         base_dir = get_settings().raw_data_dir
         resolved = (base_dir / p).resolve()
         resolved_base = base_dir.resolve()
         if not resolved.is_relative_to(resolved_base):
-            return {"source": "gpx", "error": "gpx_path resolves outside the allowed data directory"}
+            return {"source": "input", "error": "gpx_path resolves outside the allowed data directory"}
         if not resolved.is_file():
-            return {"source": "gpx", "error": f"GPX file not found: {gpx_path}"}
+            return {"source": "input", "error": f"GPX file not found: {gpx_path}"}
         try:
             result = _gpx_detect(
                 str(resolved),
@@ -135,11 +135,14 @@ def trail_technical_section_detector(
         )
         if not records:
             return {"source": "activity", "activity_id": activity_id, "error": "No records found for activity_id"}
-        result = _records_detect(
-            records,
-            grade_threshold=grade_threshold,
-            min_section_length_m=min_section_length_m,
-        )
+        try:
+            result = _records_detect(
+                records,
+                grade_threshold=grade_threshold,
+                min_section_length_m=min_section_length_m,
+            )
+        except ValueError as exc:
+            return {"source": "input", "activity_id": activity_id, "error": str(exc)}
         result["source"] = "activity"
         result["activity_id"] = activity_id
         return result
