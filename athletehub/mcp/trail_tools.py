@@ -98,14 +98,11 @@ def trail_technical_section_detector(
             return {"error": "gpx_path must have a .gpx extension"}
         base_dir = get_settings().raw_data_dir
         resolved = (base_dir / p).resolve()
+        resolved_base = base_dir.resolve()
+        if not resolved.is_relative_to(resolved_base):
+            return {"error": "gpx_path resolves outside the allowed data directory"}
         if not resolved.is_file():
             return {"source": "gpx", "error": f"GPX file not found: {gpx_path}"}
-        try:
-            resolved_base = base_dir.resolve()
-        except OSError:
-            resolved_base = base_dir
-        if not str(resolved).startswith(str(resolved_base) + "/") and resolved != resolved_base:
-            return {"error": "gpx_path resolves outside the allowed data directory"}
         try:
             result = _gpx_detect(
                 str(resolved),
