@@ -10,6 +10,13 @@ from athletehub.mcp.race_tools import race_strategy as race_strategy_tool
 from athletehub.mcp.race_tools import upcoming_races as upcoming_races_tool
 from athletehub.mcp.trail_tools import trail_difficulty as trail_difficulty_tool
 from athletehub.mcp.trail_tools import trail_profile as trail_profile_tool
+from athletehub.mcp.trail_tools import (
+    trail_technical_section_detector as trail_technical_section_detector_tool,
+)
+from athletehub.mcp.trail_tools import trail_climb_efficiency as trail_climb_efficiency_tool
+from athletehub.mcp.trail_tools import trail_downhill_risk as trail_downhill_risk_tool
+from athletehub.mcp.trail_tools import trail_hiking_ratio as trail_hiking_ratio_tool
+from athletehub.mcp.trail_tools import trail_cutoff_risk as trail_cutoff_risk_tool
 from athletehub.mcp.training_tools import summarize_training_load
 from athletehub.sync.coros_sync import sync_coros
 
@@ -97,6 +104,82 @@ def build_server():
         """Summarize recent trail-specific volume and climbing."""
 
         return trail_profile_tool(days=days)
+
+    @server.tool()
+    def trail_technical_section_detector(
+        gpx_path: str | None = None,
+        activity_id: int | None = None,
+        grade_threshold: float = 15.0,
+        min_section_length_m: float = 50.0,
+    ) -> dict:
+        """Detect technical sections (steep slopes, rocky terrain, pace anomalies) from a GPX file or activity records."""
+
+        return trail_technical_section_detector_tool(
+            gpx_path=gpx_path,
+            activity_id=activity_id,
+            grade_threshold=grade_threshold,
+            min_section_length_m=min_section_length_m,
+        )
+
+    @server.tool()
+    def trail_climb_efficiency(
+        activity_id: int,
+        climb_grade_threshold: float = 5.0,
+    ) -> dict:
+        """Analyse climbing efficiency: VAM, HR zones, cadence patterns."""
+
+        return trail_climb_efficiency_tool(
+            activity_id=activity_id,
+            climb_grade_threshold=climb_grade_threshold,
+        )
+
+    @server.tool()
+    def trail_downhill_risk(
+        activity_id: int,
+        descent_grade_threshold: float = -5.0,
+    ) -> dict:
+        """Score downhill risk based on cadence, HR drift, speed variability, and slope."""
+
+        return trail_downhill_risk_tool(
+            activity_id=activity_id,
+            descent_grade_threshold=descent_grade_threshold,
+        )
+
+    @server.tool()
+    def trail_hiking_ratio(
+        race_distance_km: float,
+        race_elevation_gain_m: float,
+        days: int = 180,
+        hiking_pace_threshold_min_per_km: float = 9.0,
+    ) -> dict:
+        """Predict run/hike ratio for a race based on training history."""
+
+        return trail_hiking_ratio_tool(
+            race_distance_km=race_distance_km,
+            race_elevation_gain_m=race_elevation_gain_m,
+            days=days,
+            hiking_pace_threshold_min_per_km=hiking_pace_threshold_min_per_km,
+        )
+
+    @server.tool()
+    def trail_cutoff_risk(
+        race_distance_km: float,
+        race_elevation_gain_m: float,
+        cutoff_time_minutes: float,
+        intermediate_cutoffs: list[dict] | None = None,
+        days: int = 180,
+        expected_temperature_c: float | None = None,
+    ) -> dict:
+        """Predict whether the athlete risks missing race cutoffs."""
+
+        return trail_cutoff_risk_tool(
+            race_distance_km=race_distance_km,
+            race_elevation_gain_m=race_elevation_gain_m,
+            cutoff_time_minutes=cutoff_time_minutes,
+            intermediate_cutoffs=intermediate_cutoffs,
+            days=days,
+            expected_temperature_c=expected_temperature_c,
+        )
 
     @server.tool()
     def import_coros_export(path: str, account_label: str | None = None) -> dict:
