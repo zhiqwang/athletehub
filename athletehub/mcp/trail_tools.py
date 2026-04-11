@@ -118,7 +118,9 @@ def trail_technical_section_detector(
             return {"source": "gpx", "error": f"Cannot read GPX file: {exc}"}
         except ET.ParseError as exc:
             return {"source": "gpx", "error": f"Invalid GPX XML: {exc}"}
-        except (ValueError, KeyError) as exc:
+        except ValueError as exc:
+            return {"source": "input", "error": str(exc)}
+        except KeyError as exc:
             return {"source": "gpx", "error": f"Invalid GPX data: {exc}"}
         result["source"] = "gpx"
         return result
