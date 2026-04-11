@@ -194,6 +194,7 @@ class TestTrailClimbEfficiency:
         from athletehub.mcp.trail_tools import trail_climb_efficiency
 
         result = trail_climb_efficiency(activity_id=99999)
+        assert result.get("source") == "activity"
         assert "error" in result
 
 
@@ -218,6 +219,7 @@ class TestTrailDownhillRisk:
         from athletehub.mcp.trail_tools import trail_downhill_risk
 
         result = trail_downhill_risk(activity_id=99999)
+        assert result.get("source") == "activity"
         assert "error" in result
 
 

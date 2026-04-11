@@ -15,6 +15,11 @@ from athletehub.utils.gpx import (
 from athletehub.utils.metrics import format_duration, format_pace, hr_zone_for_bpm, safe_mean
 from athletehub.utils.weather import heat_adjustment_seconds_per_km
 
+# Default minimum speed (m/s) to classify a sample as "running" vs "hiking".
+# ~1.852 m/s corresponds to ~9:00 min/km.
+_DEFAULT_HIKING_THRESHOLD_MIN_PER_KM = 9.0
+_DEFAULT_MIN_RUNNING_SPEED_MPS = 1000.0 / (_DEFAULT_HIKING_THRESHOLD_MIN_PER_KM * 60.0)
+
 
 # ---------------------------------------------------------------------------
 # Existing tools
@@ -164,7 +169,7 @@ def trail_climb_efficiency(
         (activity_id,),
     )
     if not records:
-        return {"activity_id": activity_id, "error": "No records found"}
+        return {"source": "activity", "activity_id": activity_id, "error": "No records found"}
 
     profile = _get_athlete_profile_for_activity(activity_id)
     max_hr = profile.get("max_hr_bpm") if profile else None
@@ -256,7 +261,7 @@ def trail_downhill_risk(
         (activity_id,),
     )
     if not records:
-        return {"activity_id": activity_id, "error": "No records found"}
+        return {"source": "activity", "activity_id": activity_id, "error": "No records found"}
 
     enriched = _enrich_records_with_grade(records)
     descent_segs = _extract_segments(enriched, lambda r: r["grade"] <= descent_grade_threshold)
@@ -356,12 +361,14 @@ def trail_hiking_ratio(
     race_distance_km: float,
     race_elevation_gain_m: float,
     days: int = 180,
-    hiking_pace_threshold_min_per_km: float = 9.0,
+    hiking_pace_threshold_min_per_km: float = _DEFAULT_HIKING_THRESHOLD_MIN_PER_KM,
 ) -> dict:
     """Predict run/hike ratio for a race based on training history."""
 
     if race_distance_km <= 0:
         return {"error": "race_distance_km must be a positive number"}
+    if race_elevation_gain_m < 0:
+        return {"error": "race_elevation_gain_m must be non-negative"}
     if hiking_pace_threshold_min_per_km <= 0:
         return {"error": "hiking_pace_threshold_min_per_km must be a positive number"}
 
@@ -442,7 +449,9 @@ def trail_hiking_ratio(
 
         total = run_dist + hike_dist
         if total > 0:
-            act_distance_km = (act["distance_m"] or 0.0) / 1000.0
+            # Prefer activities.distance_m; fall back to record-derived distance
+            act_distance_m = act["distance_m"] if act["distance_m"] is not None else total
+            act_distance_km = act_distance_m / 1000.0
             act_cd = climbing_density(act_distance_km, act.get("elevation_gain_m") or 0.0)
             activity_stats.append(
                 {
@@ -970,7 +979,7 @@ def _cutoff_recommendations(
 def _compute_hiking_pct_from_records(
     records_by_activity: dict[int, list[dict]],
     activities: list[dict],
-    min_running_speed_mps: float = 1.852,  # ~9:00 min/km
+    min_running_speed_mps: float = _DEFAULT_MIN_RUNNING_SPEED_MPS,
 ) -> float | None:
     """Estimate hiking percentage from already-fetched records.
 
