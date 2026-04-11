@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from datetime import date, timedelta
 from pathlib import Path
 
+from athletehub.config import get_settings
 from athletehub.db.db import fetch_all, fetch_one
 from athletehub.utils.elevation import climbing_density, compute_vam
 from athletehub.utils.gpx import (
@@ -89,13 +90,25 @@ def trail_technical_section_detector(
         return {"error": "Provide either gpx_path or activity_id, not both"}
 
     if gpx_path is not None:
-        # Restrict to safe relative paths to prevent arbitrary filesystem reads.
+        # Restrict to safe relative paths within raw_data_dir.
         p = Path(gpx_path)
         if p.is_absolute() or ".." in p.parts or (p.parts and p.parts[0].startswith("~")):
             return {"error": "gpx_path must be a relative path without '..' components and must not start with '~'"}
+        if p.suffix.lower() != ".gpx":
+            return {"error": "gpx_path must have a .gpx extension"}
+        base_dir = get_settings().raw_data_dir
+        resolved = (base_dir / p).resolve()
+        if not resolved.is_file():
+            return {"source": "gpx", "error": f"GPX file not found: {gpx_path}"}
+        try:
+            resolved_base = base_dir.resolve()
+        except OSError:
+            resolved_base = base_dir
+        if not str(resolved).startswith(str(resolved_base) + "/") and resolved != resolved_base:
+            return {"error": "gpx_path resolves outside the allowed data directory"}
         try:
             result = _gpx_detect(
-                gpx_path,
+                str(resolved),
                 grade_threshold=grade_threshold,
                 min_section_length_m=min_section_length_m,
             )
@@ -357,7 +370,7 @@ def trail_hiking_ratio(
 
     all_records = fetch_all(
         """
-        SELECT ar.activity_id, ar.speed_mps, ar.distance_m
+        SELECT ar.activity_id, ar.speed_mps, ar.distance_m, ar.elapsed_time_s
         FROM activity_records ar
         WHERE ar.activity_id IN (
             SELECT id FROM activities
@@ -386,11 +399,20 @@ def trail_hiking_ratio(
         run_dist = 0.0
         hike_dist = 0.0
         prev_dist = 0.0
+        prev_time = 0.0
         for rec in records:
             spd = rec.get("speed_mps")
-            d = rec.get("distance_m") or 0.0
-            delta = max(d - prev_dist, 0.0)
-            prev_dist = d
+            d = rec.get("distance_m")
+            t = rec.get("elapsed_time_s") or 0.0
+            if d is not None:
+                delta = max(d - prev_dist, 0.0)
+                prev_dist = d
+            elif spd is not None and spd > 0:
+                dt = max(t - prev_time, 0.0)
+                delta = spd * dt
+            else:
+                delta = 0.0
+            prev_time = t
             if spd is not None and spd > 0:
                 if spd >= speed_threshold:
                     run_dist += delta
@@ -914,19 +936,30 @@ def _compute_hiking_pct_from_records(
 
     Records with speed at or above *min_running_speed_mps* (default
     ~1.852 m/s ≈ 9:00 min/km) are counted as running; slower records
-    are counted as hiking.  Returns ``None`` when no usable speed data
-    is available, letting callers decide on a fallback.
+    are counted as hiking.  When ``distance_m`` is NULL but
+    ``elapsed_time_s`` and ``speed_mps`` are available, distance is
+    estimated as ``speed_mps * Δt``.  Returns ``None`` when no usable
+    speed data is available, letting callers decide on a fallback.
     """
     total_run = 0.0
     total_hike = 0.0
     for act in activities:
         records = records_by_activity.get(act["id"], [])
         prev_dist = 0.0
+        prev_time = 0.0
         for rec in records:
             spd = rec.get("speed_mps")
-            d = rec.get("distance_m") or 0.0
-            delta = max(d - prev_dist, 0.0)
-            prev_dist = d
+            d = rec.get("distance_m")
+            t = rec.get("elapsed_time_s") or 0.0
+            if d is not None:
+                delta = max(d - prev_dist, 0.0)
+                prev_dist = d
+            elif spd is not None and spd > 0:
+                dt = max(t - prev_time, 0.0)
+                delta = spd * dt
+            else:
+                delta = 0.0
+            prev_time = t
             if spd is not None and spd > 0:
                 if spd >= min_running_speed_mps:
                     total_run += delta
