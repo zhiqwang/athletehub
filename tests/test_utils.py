@@ -142,9 +142,10 @@ class TestDetectTechnicalSections:
             points.append((lat, -74.0, ele))
         gpx_path = _make_gpx(points)
         result = detect_technical_sections(gpx_path, grade_threshold=15.0, min_section_length_m=10.0)
-        # Should detect at least one steep_climb section
+        # Should detect at least one technical section, ideally a steep_climb
+        assert len(result["technical_sections"]) > 0
         types = [s["type"] for s in result["technical_sections"]]
-        assert "steep_climb" in types or len(result["technical_sections"]) >= 0  # may be merged
+        assert "steep_climb" in types or result["summary"]["steep_climb_count"] > 0  # may be merged
 
     def test_summary_keys(self):
         points = [(40.0 + i * 0.0001, -74.0, 100.0 + i) for i in range(10)]
