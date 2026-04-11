@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import xml.etree.ElementTree as ET
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -87,13 +88,18 @@ def trail_technical_section_detector(
     if gpx_path is not None:
         # Restrict to safe relative paths to prevent arbitrary filesystem reads.
         p = Path(gpx_path)
-        if p.is_absolute() or ".." in p.parts:
-            return {"error": "gpx_path must be a relative path without '..' components"}
-        result = _gpx_detect(
-            gpx_path,
-            grade_threshold=grade_threshold,
-            min_section_length_m=min_section_length_m,
-        )
+        if p.is_absolute() or ".." in p.parts or str(gpx_path).startswith("~"):
+            return {"error": "gpx_path must be a relative path without '..' or '~' components"}
+        try:
+            result = _gpx_detect(
+                gpx_path,
+                grade_threshold=grade_threshold,
+                min_section_length_m=min_section_length_m,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            return {"source": "gpx", "error": f"Cannot read GPX file: {exc}"}
+        except ET.ParseError as exc:
+            return {"source": "gpx", "error": f"Invalid GPX XML: {exc}"}
         result["source"] = "gpx"
         return result
 
@@ -565,8 +571,15 @@ def trail_cutoff_risk(
     if intermediate_cutoffs:
         checkpoints_out = []
         for cp in intermediate_cutoffs:
-            cp_km = cp.get("km", 0.0)
-            cp_cutoff = cp.get("cutoff_minutes", 0.0)
+            try:
+                cp_km = float(cp.get("km", 0.0))
+                cp_cutoff = float(cp.get("cutoff_minutes", 0.0))
+            except (TypeError, ValueError):
+                continue  # skip malformed entries
+            if cp_km < 0:
+                cp_km = 0.0
+            if cp_km > race_distance_km:
+                cp_km = race_distance_km
             frac = cp_km / race_distance_km if race_distance_km > 0 else 0.0
             cp_est_min = est_finish_min * frac
             cp_margin = ((cp_cutoff - cp_est_min) / cp_cutoff * 100.0) if cp_cutoff > 0 else 0.0
