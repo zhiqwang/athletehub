@@ -85,10 +85,13 @@ def trail_technical_section_detector(
     """Identify technical sections (steep slopes, rocky terrain)
     from a GPX file *or* from stored activity records."""
 
+    if gpx_path is not None and activity_id is not None:
+        return {"error": "Provide either gpx_path or activity_id, not both"}
+
     if gpx_path is not None:
         # Restrict to safe relative paths to prevent arbitrary filesystem reads.
         p = Path(gpx_path)
-        if p.is_absolute() or ".." in p.parts or str(gpx_path).startswith("~"):
+        if p.is_absolute() or ".." in p.parts or any(part.startswith("~") for part in p.parts):
             return {"error": "gpx_path must be a relative path without '..' or '~' components"}
         try:
             result = _gpx_detect(
