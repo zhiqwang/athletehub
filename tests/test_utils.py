@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 from athletehub.utils.elevation import compute_vam
@@ -94,42 +93,41 @@ _STEEP_GPX = """\
 """
 
 
-def _make_gpx(points: list[tuple[float, float, float]]) -> Path:
+def _make_gpx(tmp_path: Path, points: list[tuple[float, float, float]]) -> Path:
     """Write a minimal GPX file with the given (lat, lon, ele) points."""
     xml_points = "\n".join(
         f'<trkpt lat="{lat}" lon="{lon}"><ele>{ele}</ele></trkpt>'
         for lat, lon, ele in points
     )
     content = _STEEP_GPX.format(points=xml_points)
-    tmp = tempfile.NamedTemporaryFile(suffix=".gpx", mode="w", delete=False)
-    tmp.write(content)
-    tmp.close()
-    return Path(tmp.name)
+    gpx_path = tmp_path / "test_route.gpx"
+    gpx_path.write_text(content, encoding="utf-8")
+    return gpx_path
 
 
 class TestDetectTechnicalSections:
-    def test_empty_gpx(self):
-        gpx_path = _make_gpx([])
+    def test_empty_gpx(self, tmp_path: Path):
+        gpx_path = _make_gpx(tmp_path, [])
         result = detect_technical_sections(gpx_path)
         assert result["total_distance_km"] == 0.0
         assert result["technical_sections"] == []
 
-    def test_single_point(self):
-        gpx_path = _make_gpx([(40.0, -74.0, 100.0)])
+    def test_single_point(self, tmp_path: Path):
+        gpx_path = _make_gpx(tmp_path, [(40.0, -74.0, 100.0)])
         result = detect_technical_sections(gpx_path)
         assert result["total_distance_km"] == 0.0
 
-    def test_flat_route_no_sections(self):
+    def test_flat_route_no_sections(self, tmp_path: Path):
         # 10 points, all at 100m elevation, spaced ~11m apart
         points = [(40.0 + i * 0.0001, -74.0, 100.0) for i in range(10)]
-        gpx_path = _make_gpx(points)
+        gpx_path = _make_gpx(tmp_path, points)
         result = detect_technical_sections(gpx_path, grade_threshold=15.0)
         assert result["total_distance_km"] > 0
         # Flat route should have no steep sections
         steep = [s for s in result["technical_sections"] if "steep" in s["type"]]
         assert len(steep) == 0
 
-    def test_steep_climb_detected(self):
+    def test_steep_climb_detected(self, tmp_path: Path):
         # Create a route with a very steep section (~45% grade)
         # Each step is ~11m horizontal, 5m vertical
         points = []
@@ -140,16 +138,16 @@ class TestDetectTechnicalSections:
             else:
                 ele = 100.0
             points.append((lat, -74.0, ele))
-        gpx_path = _make_gpx(points)
+        gpx_path = _make_gpx(tmp_path, points)
         result = detect_technical_sections(gpx_path, grade_threshold=15.0, min_section_length_m=10.0)
         # Should detect at least one technical section, ideally a steep_climb
         assert len(result["technical_sections"]) > 0
         types = [s["type"] for s in result["technical_sections"]]
         assert "steep_climb" in types or result["summary"]["steep_climb_count"] > 0  # may be merged
 
-    def test_summary_keys(self):
+    def test_summary_keys(self, tmp_path: Path):
         points = [(40.0 + i * 0.0001, -74.0, 100.0 + i) for i in range(10)]
-        gpx_path = _make_gpx(points)
+        gpx_path = _make_gpx(tmp_path, points)
         result = detect_technical_sections(gpx_path)
         summary = result["summary"]
         assert "steep_climb_count" in summary
