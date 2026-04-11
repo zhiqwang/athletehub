@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -50,15 +51,20 @@ def _seed_test_data():
         )
 
         # Insert a trail_run activity
+        started_at = datetime.combine(
+            date.today() - timedelta(days=30),
+            time(hour=8),
+            tzinfo=timezone.utc,
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
         conn.execute(
             """
             INSERT INTO activities (
                 athlete_id, sport, title, started_at, distance_m,
                 moving_time_s, elevation_gain_m, average_hr_bpm
-            ) VALUES (?, 'trail_run', 'Test Trail Run', '2026-04-01T08:00:00Z',
+            ) VALUES (?, 'trail_run', 'Test Trail Run', ?,
                       10000, 4200, 600, 155)
             """,
-            (athlete_id,),
+            (athlete_id, started_at),
         )
         activity_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
