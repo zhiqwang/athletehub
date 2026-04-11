@@ -113,6 +113,8 @@ def trail_technical_section_detector(
             return {"source": "gpx", "error": f"Cannot read GPX file: {exc}"}
         except ET.ParseError as exc:
             return {"source": "gpx", "error": f"Invalid GPX XML: {exc}"}
+        except (ValueError, KeyError) as exc:
+            return {"source": "gpx", "error": f"Invalid GPX data: {exc}"}
         result["source"] = "gpx"
         return result
 
@@ -357,6 +359,11 @@ def trail_hiking_ratio(
 ) -> dict:
     """Predict run/hike ratio for a race based on training history."""
 
+    if race_distance_km <= 0:
+        return {"error": "race_distance_km must be a positive number"}
+    if hiking_pace_threshold_min_per_km <= 0:
+        return {"error": "hiking_pace_threshold_min_per_km must be a positive number"}
+
     window = max(days, 1)
     since = (date.today() - timedelta(days=window - 1)).isoformat()
 
@@ -507,6 +514,11 @@ def trail_cutoff_risk(
     expected_temperature_c: float | None = None,
 ) -> dict:
     """Predict whether the athlete risks missing race cutoffs."""
+
+    if race_distance_km <= 0:
+        return {"error": "race_distance_km must be a positive number"}
+    if race_elevation_gain_m < 0:
+        return {"error": "race_elevation_gain_m must be non-negative"}
 
     window = max(days, 1)
     since = (date.today() - timedelta(days=window - 1)).isoformat()
