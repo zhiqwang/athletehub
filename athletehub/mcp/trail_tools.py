@@ -165,8 +165,8 @@ def trail_climb_efficiency(
 
         segments_out.append(
             {
-                "start_km": round(seg[0]["distance_m"] / 1000.0, 2),
-                "end_km": round(seg[-1]["distance_m"] / 1000.0, 2),
+                "start_km": round((seg[0].get("distance_m") or 0.0) / 1000.0, 2),
+                "end_km": round((seg[-1].get("distance_m") or 0.0) / 1000.0, 2),
                 "gain_m": round(gain, 1),
                 "avg_grade": round(avg_grade, 1),
                 "vam": round(vam, 0),
@@ -273,14 +273,14 @@ def trail_downhill_risk(
         speed_score = min(speed_cv * 100.0, 20.0)
         risk_score = grade_score + hr_drift_score + cadence_score_val + speed_score
 
-        seg_dist = abs(seg[-1]["distance_m"] - seg[0]["distance_m"]) if len(seg) >= 2 else 0.0
+        seg_dist = abs((seg[-1].get("distance_m") or 0.0) - (seg[0].get("distance_m") or 0.0)) if len(seg) >= 2 else 0.0
         weighted_risk += risk_score * seg_dist
         total_seg_dist += seg_dist
 
         segments_out.append(
             {
-                "start_km": round(seg[0]["distance_m"] / 1000.0, 2),
-                "end_km": round(seg[-1]["distance_m"] / 1000.0, 2),
+                "start_km": round((seg[0].get("distance_m") or 0.0) / 1000.0, 2),
+                "end_km": round((seg[-1].get("distance_m") or 0.0) / 1000.0, 2),
                 "loss_m": round(loss, 1),
                 "avg_grade": round(avg_grade, 1),
                 "risk_score": round(risk_score, 1),

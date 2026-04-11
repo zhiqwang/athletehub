@@ -233,6 +233,7 @@ def _detect_sections_from_points(
 
     # --- Filter by minimum length and build output ---
     sections: list[dict] = []
+    unrounded_lengths: list[float] = []
     for sec in raw_sections:
         length = sec["end_m"] - sec["start_m"]
         if length < min_section_length_m:
@@ -251,8 +252,9 @@ def _detect_sections_from_points(
                 "elevation_change_m": round(ele_change, 1),
             }
         )
+        unrounded_lengths.append(length)
 
-    summary = _build_summary(sections, total_distance_m)
+    summary = _build_summary(sections, total_distance_m, unrounded_lengths)
     return {
         "total_distance_km": round(total_distance_m / 1000.0, 2),
         "technical_sections": sections,
@@ -260,11 +262,21 @@ def _detect_sections_from_points(
     }
 
 
-def _build_summary(sections: list[dict], total_distance_m: float) -> dict:
+def _build_summary(
+    sections: list[dict],
+    total_distance_m: float,
+    unrounded_lengths: list[float] | None = None,
+) -> dict:
     steep_climb = sum(1 for s in sections if s["type"] == "steep_climb")
     steep_descent = sum(1 for s in sections if s["type"] == "steep_descent")
     technical = sum(1 for s in sections if s["type"] == "technical")
-    total_tech_m = sum(s["length_m"] for s in sections if s["type"] == "technical")
+    # Use unrounded lengths for accurate summary math when available
+    if unrounded_lengths is not None:
+        total_tech_m = sum(
+            l for s, l in zip(sections, unrounded_lengths) if s["type"] == "technical"
+        )
+    else:
+        total_tech_m = sum(s["length_m"] for s in sections if s["type"] == "technical")
     pct = (total_tech_m / total_distance_m * 100.0) if total_distance_m > 0 else 0.0
     return {
         "steep_climb_count": steep_climb,
