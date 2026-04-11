@@ -416,17 +416,17 @@ def trail_hiking_ratio(
 
         run_dist = 0.0
         hike_dist = 0.0
-        prev_dist = 0.0
-        prev_time = 0.0
+        prev_dist: float | None = None
+        prev_time: float | None = None
         for rec in records:
             spd = rec.get("speed_mps")
             d = rec.get("distance_m")
             t = rec.get("elapsed_time_s") or 0.0
             if d is not None:
-                delta = max(d - prev_dist, 0.0)
+                delta = max(d - prev_dist, 0.0) if prev_dist is not None else 0.0
                 prev_dist = d
             elif spd is not None and spd > 0:
-                dt = max(t - prev_time, 0.0)
+                dt = max(t - prev_time, 0.0) if prev_time is not None else 0.0
                 delta = spd * dt
             else:
                 delta = 0.0
@@ -985,17 +985,17 @@ def _compute_hiking_pct_from_records(
     total_hike = 0.0
     for act in activities:
         records = records_by_activity.get(act["id"], [])
-        prev_dist = 0.0
-        prev_time = 0.0
+        prev_dist: float | None = None
+        prev_time: float | None = None
         for rec in records:
             spd = rec.get("speed_mps")
             d = rec.get("distance_m")
             t = rec.get("elapsed_time_s") or 0.0
             if d is not None:
-                delta = max(d - prev_dist, 0.0)
+                delta = max(d - prev_dist, 0.0) if prev_dist is not None else 0.0
                 prev_dist = d
             elif spd is not None and spd > 0:
-                dt = max(t - prev_time, 0.0)
+                dt = max(t - prev_time, 0.0) if prev_time is not None else 0.0
                 delta = spd * dt
             else:
                 delta = 0.0
