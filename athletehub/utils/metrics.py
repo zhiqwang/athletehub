@@ -68,10 +68,13 @@ def hr_zone_for_bpm(
     max_hr_bpm: float | None = None,
     threshold_hr_bpm: float | None = None,
 ) -> int:
-    """Return a heart-rate zone (1-5) for the given *hr_bpm*.
+    """Return a heart-rate zone (0-5) for the given *hr_bpm*.
+
+    Returns 0 when *hr_bpm* is ``None`` and no zone can be determined.
+    Otherwise returns a zone from 1 to 5.
 
     Zone boundaries are derived from *threshold_hr_bpm* when available,
-    otherwise from *max_hr_bpm*.  Falls back to a generic 165 bpm
+    otherwise from *max_hr_bpm*. Falls back to a generic 165 bpm
     reference if neither is provided.
     """
     if hr_bpm is None:
