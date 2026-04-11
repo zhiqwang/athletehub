@@ -712,8 +712,6 @@ def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
     distance still produce meaningful grade values.
     """
     enriched: list[dict] = []
-    prev_dist: float = 0.0
-    prev_time: float = 0.0
     for i, rec in enumerate(records):
         r = dict(rec)
         r["grade"] = 0.0
