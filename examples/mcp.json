@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "athletehub": {
+      "command": "uv",
+      "args": ["run", "athletehub-mcp"],
+      "cwd": "."
+    }
+  }
+}

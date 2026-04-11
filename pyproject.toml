@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "athletehub"
+version = "0.1.0"
+description = "Local-first endurance sports data hub with MCP tools for AI training analysis."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "duckdb>=1.0.0",
+  "mcp>=1.0.0",
+  "pydantic>=2.7.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.6.0",
+]
+
+[project.scripts]
+athletehub-mcp = "athletehub.mcp.server:main"
+athletehub-migrate = "athletehub.db.migrate:main"
+athletehub-rebuild-loads = "athletehub.db.analytics:main"
+athletehub-coros-sync = "athletehub.sync.coros_sync:main"
+
+[tool.setuptools.packages.find]
+include = ["athletehub*"]
+
+[tool.setuptools.package-data]
+athletehub = ["db/schema.sql"]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

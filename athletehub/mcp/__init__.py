@@ -1,0 +1,1 @@
+"""MCP tooling for AthleteHub."""
