@@ -187,9 +187,6 @@ def _detect_sections_from_points(
                 deltas.append(b.elevation - a.elevation)
         osc_std = _std(deltas)
 
-        # Speed
-        speed_val = points[i].speed
-
         # Classify
         section_type: str | None = None
         if grade >= grade_threshold:
@@ -198,13 +195,6 @@ def _detect_sections_from_points(
             section_type = "steep_descent"
         elif osc_std > oscillation_threshold_m:
             section_type = "technical"
-        elif (
-            avg_speed is not None
-            and speed_val is not None
-            and speed_val < avg_speed * 0.5
-            and speed_val > 0
-        ):
-            section_type = "pace_anomaly"
 
         window_flags.append(
             {
