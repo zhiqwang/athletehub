@@ -153,8 +153,11 @@ class TestDetectTechnicalSections:
         assert "steep_climb_count" in summary
         assert "steep_descent_count" in summary
         assert "technical_count" in summary
-        assert "total_technical_distance_m" in summary
-        assert "technical_pct" in summary
+        assert "total_flagged_distance_m" in summary
+        assert "flagged_pct" in summary
+        assert "steep_climb_distance_m" in summary
+        assert "steep_descent_distance_m" in summary
+        assert "technical_distance_m" in summary
 
 
 class TestDetectTechnicalSectionsFromRecords:

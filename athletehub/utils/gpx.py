@@ -270,20 +270,29 @@ def _build_summary(
     steep_climb = sum(1 for s in sections if s["type"] == "steep_climb")
     steep_descent = sum(1 for s in sections if s["type"] == "steep_descent")
     technical = sum(1 for s in sections if s["type"] == "technical")
-    # Use unrounded lengths for accurate summary math when available
+
+    # Per-type distance using unrounded lengths when available
+    type_dist: dict[str, float] = {}
     if unrounded_lengths is not None:
-        total_tech_m = sum(
-            length for s, length in zip(sections, unrounded_lengths) if s["type"] == "technical"
-        )
+        for sec, length in zip(sections, unrounded_lengths):
+            t = sec["type"]
+            type_dist[t] = type_dist.get(t, 0.0) + length
     else:
-        total_tech_m = sum(s["length_m"] for s in sections if s["type"] == "technical")
-    pct = (total_tech_m / total_distance_m * 100.0) if total_distance_m > 0 else 0.0
+        for sec in sections:
+            t = sec["type"]
+            type_dist[t] = type_dist.get(t, 0.0) + sec["length_m"]
+
+    total_flagged_m = sum(type_dist.values())
+    flagged_pct = (total_flagged_m / total_distance_m * 100.0) if total_distance_m > 0 else 0.0
     return {
         "steep_climb_count": steep_climb,
         "steep_descent_count": steep_descent,
         "technical_count": technical,
-        "total_technical_distance_m": round(total_tech_m, 0),
-        "technical_pct": round(pct, 1),
+        "total_flagged_distance_m": round(total_flagged_m, 0),
+        "flagged_pct": round(flagged_pct, 1),
+        "steep_climb_distance_m": round(type_dist.get("steep_climb", 0.0), 0),
+        "steep_descent_distance_m": round(type_dist.get("steep_descent", 0.0), 0),
+        "technical_distance_m": round(type_dist.get("technical", 0.0), 0),
     }
 
 
@@ -292,8 +301,11 @@ def _empty_summary() -> dict:
         "steep_climb_count": 0,
         "steep_descent_count": 0,
         "technical_count": 0,
-        "total_technical_distance_m": 0.0,
-        "technical_pct": 0.0,
+        "total_flagged_distance_m": 0.0,
+        "flagged_pct": 0.0,
+        "steep_climb_distance_m": 0.0,
+        "steep_descent_distance_m": 0.0,
+        "technical_distance_m": 0.0,
     }
 
 
