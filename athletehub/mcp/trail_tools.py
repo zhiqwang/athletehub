@@ -91,8 +91,8 @@ def trail_technical_section_detector(
     if gpx_path is not None:
         # Restrict to safe relative paths to prevent arbitrary filesystem reads.
         p = Path(gpx_path)
-        if p.is_absolute() or ".." in p.parts or any(part.startswith("~") for part in p.parts):
-            return {"error": "gpx_path must be a relative path without '..' or '~' components"}
+        if p.is_absolute() or ".." in p.parts or (p.parts and p.parts[0].startswith("~")):
+            return {"error": "gpx_path must be a relative path without '..' components and must not start with '~'"}
         try:
             result = _gpx_detect(
                 gpx_path,
@@ -565,8 +565,11 @@ def trail_cutoff_risk(
         fatigue_factor = 1.0 + (est_hours - 4.0) * 0.02
         est_time_s *= fatigue_factor
 
+    if cutoff_time_minutes <= 0:
+        return {"error": "cutoff_time_minutes must be a positive number"}
+
     est_finish_min = est_time_s / 60.0
-    margin_pct = ((cutoff_time_minutes - est_finish_min) / cutoff_time_minutes * 100.0) if cutoff_time_minutes > 0 else 0.0
+    margin_pct = (cutoff_time_minutes - est_finish_min) / cutoff_time_minutes * 100.0
     risk_label_val = _cutoff_risk_label(margin_pct)
 
     # Intermediate checkpoints

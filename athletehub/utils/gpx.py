@@ -120,7 +120,12 @@ def _parse_gpx_raw_points(path: str | Path) -> list[tuple[float, float, float | 
         lat = float(node.attrib["lat"])
         lon = float(node.attrib["lon"])
         ele_node = node.find("{*}ele")
-        elevation = float(ele_node.text) if ele_node is not None else None
+        elevation = None
+        if ele_node is not None and ele_node.text and ele_node.text.strip():
+            try:
+                elevation = float(ele_node.text)
+            except ValueError:
+                elevation = None
         points.append((lat, lon, elevation))
     return points
 
