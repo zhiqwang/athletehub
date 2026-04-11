@@ -206,7 +206,8 @@ def _detect_sections_from_points(
                 "end_m": seg_end.cumulative_m,
                 "grade": grade,
                 "section_type": section_type,
-                "elevation": points[i].elevation,
+                "start_elevation": seg_start.elevation,
+                "end_elevation": seg_end.elevation,
             }
         )
 
@@ -222,8 +223,8 @@ def _detect_sections_from_points(
         if current is not None and current["type"] == wf["section_type"]:
             current["end_m"] = wf["end_m"]
             current["grades"].append(wf["grade"])
-            if wf["elevation"] is not None:
-                current["elevations"].append(wf["elevation"])
+            if wf["end_elevation"] is not None:
+                current["end_elevation"] = wf["end_elevation"]
         else:
             if current is not None:
                 raw_sections.append(current)
@@ -232,7 +233,8 @@ def _detect_sections_from_points(
                 "start_m": wf["start_m"],
                 "end_m": wf["end_m"],
                 "grades": [wf["grade"]],
-                "elevations": [wf["elevation"]] if wf["elevation"] is not None else [],
+                "start_elevation": wf["start_elevation"],
+                "end_elevation": wf["end_elevation"],
             }
     if current is not None:
         raw_sections.append(current)
@@ -245,8 +247,9 @@ def _detect_sections_from_points(
         if length < min_section_length_m:
             continue
         grades = sec["grades"]
-        elevations = sec["elevations"]
-        ele_change = (elevations[-1] - elevations[0]) if len(elevations) >= 2 else 0.0
+        start_ele = sec["start_elevation"]
+        end_ele = sec["end_elevation"]
+        ele_change = (end_ele - start_ele) if start_ele is not None and end_ele is not None else 0.0
         sections.append(
             {
                 "start_km": round(sec["start_m"] / 1000.0, 2),

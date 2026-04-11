@@ -512,15 +512,18 @@ def trail_cutoff_risk(
     for rec in all_records:
         records_by_activity.setdefault(rec["activity_id"], []).append(rec)
 
+    contributing_activities = 0
     for act in activities:
         records = records_by_activity.get(act["id"], [])
         if len(records) < 2:
             continue
         enriched = _enrich_records_with_grade(records)
+        contributed = False
         for rec in enriched:
             spd = rec.get("speed_mps")
             if spd is None or spd <= 0:
                 continue
+            contributed = True
             pace_s_per_km = 1000.0 / spd
             grade = rec["grade"]
             if grade >= 5.0:
@@ -529,6 +532,8 @@ def trail_cutoff_risk(
                 descent_paces.append(pace_s_per_km)
             else:
                 flat_paces.append(pace_s_per_km)
+        if contributed:
+            contributing_activities += 1
 
     avg_flat = safe_mean(flat_paces) or 420.0   # 7:00/km default
     avg_climb = safe_mean(climb_paces) or 600.0  # 10:00/km default
@@ -582,8 +587,8 @@ def trail_cutoff_risk(
                 cp_cutoff = float(cp.get("cutoff_minutes", 0.0))
             except (TypeError, ValueError):
                 continue  # skip malformed entries
-            if cp_km < 0:
-                cp_km = 0.0
+            if cp_cutoff <= 0 or cp_km <= 0:
+                continue  # skip entries with non-positive cutoff or distance
             if cp_km > race_distance_km:
                 cp_km = race_distance_km
             frac = cp_km / race_distance_km if race_distance_km > 0 else 0.0
@@ -592,7 +597,7 @@ def trail_cutoff_risk(
             checkpoints_out.append(
                 {
                     "km": cp_km,
-                    "cutoff_min": cp_cutoff,
+                    "cutoff_minutes": cp_cutoff,
                     "estimated_arrival_min": round(cp_est_min, 1),
                     "margin_pct": round(cp_margin, 1),
                     "status": _cutoff_risk_label(cp_margin),
@@ -610,7 +615,7 @@ def trail_cutoff_risk(
         "margin_pct": round(margin_pct, 1),
         "risk_label": risk_label_val,
         "training_basis": {
-            "activities_analyzed": len(activities),
+            "activities_analyzed": contributing_activities,
             "avg_flat_pace": format_pace(avg_flat),
             "avg_climb_pace": format_pace(avg_climb),
             "avg_descent_pace": format_pace(avg_descent),
@@ -687,11 +692,18 @@ def _extract_segments(
     records: list[dict],
     predicate,
 ) -> list[list[dict]]:
-    """Group consecutive records matching *predicate* into segments."""
+    """Group consecutive records matching *predicate* into segments.
+
+    When a segment starts at record *i*, record *i-1* is prepended so that the
+    first interval (i-1 → i) is included in segment metrics (elevation change,
+    time, distance).
+    """
     segments: list[list[dict]] = []
     current: list[dict] = []
-    for rec in records:
+    for i, rec in enumerate(records):
         if predicate(rec):
+            if not current and i > 0:
+                current.append(records[i - 1])
             current.append(rec)
         else:
             if current:
