@@ -341,16 +341,16 @@ def trail_hiking_ratio(
     if not activities:
         return _hiking_ratio_no_data(race_distance_km, race_elevation_gain_m, race_cd)
 
-    activity_ids = [act["id"] for act in activities]
-    record_placeholders = ", ".join("?" for _ in activity_ids)
     all_records = fetch_all(
-        f"""
-        SELECT activity_id, speed_mps, distance_m
-        FROM activity_records
-        WHERE activity_id IN ({record_placeholders})
-        ORDER BY activity_id, sample_index
+        """
+        SELECT ar.activity_id, ar.speed_mps, ar.distance_m
+        FROM activity_records ar
+        JOIN activities a ON a.id = ar.activity_id
+        WHERE date(a.started_at) >= ?
+          AND a.sport IN ('trail_run', 'hike', 'ultra_trail')
+        ORDER BY ar.activity_id, ar.sample_index
         """,
-        tuple(activity_ids),
+        (since,),
     )
     records_by_activity: dict[int, list[dict]] = {}
     for rec in all_records:
@@ -478,30 +478,30 @@ def trail_cutoff_risk(
     climb_paces: list[float] = []
     descent_paces: list[float] = []
 
-    activity_ids = [act["id"] for act in activities]
     records_by_activity: dict[int, list[dict]] = {}
-    if activity_ids:
-        placeholders = ", ".join("?" for _ in activity_ids)
-        all_records = fetch_all(
-            f"""
-            SELECT activity_id, altitude_m, speed_mps, distance_m, elapsed_time_s
-            FROM activity_records
-            WHERE activity_id IN ({placeholders})
-            ORDER BY activity_id, sample_index
-            """,
-            tuple(activity_ids),
+    all_records = fetch_all(
+        """
+        SELECT ar.activity_id, ar.altitude_m, ar.speed_mps,
+               ar.distance_m, ar.elapsed_time_s
+        FROM activity_records ar
+        JOIN activities a ON a.id = ar.activity_id
+        WHERE date(a.started_at) >= ?
+          AND a.sport IN ('trail_run', 'hike', 'ultra_trail')
+        ORDER BY ar.activity_id, ar.sample_index
+        """,
+        (since,),
+    )
+    for rec in all_records:
+        activity_id = rec["activity_id"]
+        bucket = records_by_activity.setdefault(activity_id, [])
+        bucket.append(
+            {
+                "altitude_m": rec["altitude_m"],
+                "speed_mps": rec["speed_mps"],
+                "distance_m": rec["distance_m"],
+                "elapsed_time_s": rec["elapsed_time_s"],
+            }
         )
-        for rec in all_records:
-            activity_id = rec["activity_id"]
-            bucket = records_by_activity.setdefault(activity_id, [])
-            bucket.append(
-                {
-                    "altitude_m": rec["altitude_m"],
-                    "speed_mps": rec["speed_mps"],
-                    "distance_m": rec["distance_m"],
-                    "elapsed_time_s": rec["elapsed_time_s"],
-                }
-            )
 
     for act in activities:
         records = records_by_activity.get(act["id"], [])
