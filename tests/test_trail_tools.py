@@ -6,35 +6,37 @@ data, then calls the tool function directly.
 
 from __future__ import annotations
 
-import os
 import tempfile
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from athletehub.db.migrate import migrate
-
-# Ensure a temp DB for tests
-_TMP_DB = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-_TMP_DB.close()
-os.environ["ATHLETEHUB_DB_PATH"] = _TMP_DB.name
-
-from athletehub.db.db import fetch_one, get_connection  # noqa: E402
-
 
 @pytest.fixture(scope="module", autouse=True)
-def _setup_db():
+def _setup_db(monkeypatch):
     """Migrate and seed the temp database once for the module."""
-    migrate(db_path=_TMP_DB.name)
-    _seed_test_data()
+    tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp_db.close()
+    monkeypatch.setenv("ATHLETEHUB_DB_PATH", tmp_db.name)
+
+    from athletehub.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    from athletehub.db.migrate import migrate
+
+    migrate(db_path=tmp_db.name)
+    _seed_test_data(tmp_db.name)
     yield
-    Path(_TMP_DB.name).unlink(missing_ok=True)
+    Path(tmp_db.name).unlink(missing_ok=True)
 
 
-def _seed_test_data():
+def _seed_test_data(db_path: str):
     """Insert a trail_run activity with records to exercise all tools."""
-    conn = get_connection(_TMP_DB.name)
+    from athletehub.db.db import get_connection
+
+    conn = get_connection(db_path)
     try:
         # Check default athlete exists
         athlete = conn.execute("SELECT id FROM athletes LIMIT 1").fetchone()
@@ -124,6 +126,8 @@ def _seed_test_data():
 
 
 def _get_activity_id() -> int:
+    from athletehub.db.db import fetch_one
+
     row = fetch_one("SELECT id FROM activities WHERE sport = 'trail_run' LIMIT 1")
     assert row is not None
     return row["id"]
