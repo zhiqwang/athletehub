@@ -162,9 +162,6 @@ def _detect_sections_from_points(
 
     # --- Compute per-window classifications ---
     window_flags: list[dict] = []
-    # Compute segment average speed for pace-anomaly detection
-    speeds = [p.speed for p in points if p.speed is not None and p.speed > 0]
-    avg_speed = (sum(speeds) / len(speeds)) if speeds else None
 
     half = window_size // 2
     for i in range(half, len(points) - half):
@@ -202,7 +199,8 @@ def _detect_sections_from_points(
         window_flags.append(
             {
                 "index": i,
-                "cumulative_m": points[i].cumulative_m,
+                "start_m": seg_start.cumulative_m,
+                "end_m": seg_end.cumulative_m,
                 "grade": grade,
                 "section_type": section_type,
                 "elevation": points[i].elevation,
@@ -219,7 +217,7 @@ def _detect_sections_from_points(
                 current = None
             continue
         if current is not None and current["type"] == wf["section_type"]:
-            current["end_m"] = wf["cumulative_m"]
+            current["end_m"] = wf["end_m"]
             current["grades"].append(wf["grade"])
             if wf["elevation"] is not None:
                 current["elevations"].append(wf["elevation"])
@@ -228,8 +226,8 @@ def _detect_sections_from_points(
                 raw_sections.append(current)
             current = {
                 "type": wf["section_type"],
-                "start_m": wf["cumulative_m"],
-                "end_m": wf["cumulative_m"],
+                "start_m": wf["start_m"],
+                "end_m": wf["end_m"],
                 "grades": [wf["grade"]],
                 "elevations": [wf["elevation"]] if wf["elevation"] is not None else [],
             }

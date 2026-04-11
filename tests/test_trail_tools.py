@@ -6,6 +6,7 @@ data, then calls the tool function directly.
 
 from __future__ import annotations
 
+import os
 import tempfile
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -14,13 +15,15 @@ import pytest
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _setup_db(monkeypatch):
+def _setup_db():
     """Migrate and seed the temp database once for the module."""
     tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp_db.close()
-    monkeypatch.setenv("ATHLETEHUB_DB_PATH", tmp_db.name)
 
-    from athletehub.core.config import get_settings
+    old_val = os.environ.get("ATHLETEHUB_DB_PATH")
+    os.environ["ATHLETEHUB_DB_PATH"] = tmp_db.name
+
+    from athletehub.config import get_settings
 
     get_settings.cache_clear()
 
@@ -29,6 +32,11 @@ def _setup_db(monkeypatch):
     migrate(db_path=tmp_db.name)
     _seed_test_data(tmp_db.name)
     yield
+    get_settings.cache_clear()
+    if old_val is None:
+        os.environ.pop("ATHLETEHUB_DB_PATH", None)
+    else:
+        os.environ["ATHLETEHUB_DB_PATH"] = old_val
     Path(tmp_db.name).unlink(missing_ok=True)
 
 

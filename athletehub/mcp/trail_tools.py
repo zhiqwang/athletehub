@@ -80,7 +80,7 @@ def trail_technical_section_detector(
     grade_threshold: float = 15.0,
     min_section_length_m: float = 50.0,
 ) -> dict:
-    """Identify technical sections (steep slopes, rocky terrain, pace anomalies)
+    """Identify technical sections (steep slopes, rocky terrain)
     from a GPX file *or* from stored activity records."""
 
     if gpx_path is not None:
@@ -95,7 +95,7 @@ def trail_technical_section_detector(
     if activity_id is not None:
         records = fetch_all(
             """
-            SELECT latitude, longitude, altitude_m, speed_mps, distance_m
+            SELECT latitude, longitude, altitude_m, speed_mps
             FROM activity_records
             WHERE activity_id = ?
             ORDER BY sample_index
@@ -529,13 +529,9 @@ def trail_cutoff_risk(
     descent_frac = climb_frac * 0.9
     flat_frac = 1.0 - climb_frac - descent_frac
 
-    # Use hiking ratio prediction
-    hike_result = trail_hiking_ratio(
-        race_distance_km=race_distance_km,
-        race_elevation_gain_m=race_elevation_gain_m,
-        days=days,
-    )
-    hiking_pct = hike_result.get("predicted_hiking_pct", 30.0)
+    # Compute hiking percentage from already-fetched data to avoid redundant
+    # DB queries that trail_hiking_ratio() would perform.
+    hiking_pct = _compute_hiking_pct_from_records(records_by_activity, activities)
 
     # Base estimated time
     est_time_s = (
@@ -870,3 +866,34 @@ def _cutoff_recommendations(
             "Current training supports a comfortable finish within the cutoff."
         )
     return recs
+
+
+def _compute_hiking_pct_from_records(
+    records_by_activity: dict[int, list[dict]],
+    activities: list[dict],
+    hiking_speed_threshold: float = 1.852,  # ~9:00 min/km
+) -> float:
+    """Estimate hiking percentage from already-fetched records.
+
+    Uses a default speed threshold of ~1.852 m/s (9:00 min/km).
+    Returns 30.0 as a fallback when no usable data is available.
+    """
+    total_run = 0.0
+    total_hike = 0.0
+    for act in activities:
+        records = records_by_activity.get(act["id"], [])
+        prev_dist = 0.0
+        for rec in records:
+            spd = rec.get("speed_mps")
+            d = rec.get("distance_m") or 0.0
+            delta = max(d - prev_dist, 0.0)
+            prev_dist = d
+            if spd is not None and spd > 0:
+                if spd >= hiking_speed_threshold:
+                    total_run += delta
+                else:
+                    total_hike += delta
+    total = total_run + total_hike
+    if total <= 0:
+        return 30.0
+    return total_hike / total * 100.0
