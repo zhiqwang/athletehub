@@ -297,9 +297,23 @@ def trail_downhill_risk(
         speed_score = min(speed_cv * 100.0, 20.0)
         risk_score = grade_score + hr_drift_score + cadence_score_val + speed_score
 
-        end_dist = seg[-1].get("distance_m") or 0.0
-        start_dist = seg[0].get("distance_m") or 0.0
-        seg_dist = abs(end_dist - start_dist) if len(seg) >= 2 else 0.0
+        end_dist_raw = seg[-1].get("distance_m")
+        start_dist_raw = seg[0].get("distance_m")
+        if end_dist_raw is not None and start_dist_raw is not None:
+            seg_dist = abs(end_dist_raw - start_dist_raw) if len(seg) >= 2 else 0.0
+            start_dist = start_dist_raw
+            end_dist = end_dist_raw
+        else:
+            # Estimate segment distance from speed_mps * Δt
+            seg_dist = 0.0
+            for k in range(1, len(seg)):
+                spd = seg[k].get("speed_mps")
+                t = seg[k].get("elapsed_time_s") or 0.0
+                t_prev = seg[k - 1].get("elapsed_time_s") or 0.0
+                if spd is not None and spd > 0:
+                    seg_dist += spd * max(t - t_prev, 0.0)
+            start_dist = start_dist_raw or 0.0
+            end_dist = (start_dist_raw or 0.0) + seg_dist
         weighted_risk += risk_score * seg_dist
         total_seg_dist += seg_dist
 
@@ -691,8 +705,15 @@ def _get_athlete_profile_for_activity(activity_id: int) -> dict | None:
 
 
 def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
-    """Add a ``grade`` key (percent) to each record based on consecutive altitude/distance."""
+    """Add a ``grade`` key (percent) to each record based on consecutive altitude/distance.
+
+    When ``distance_m`` is NULL, horizontal distance is estimated from
+    ``speed_mps * Δelapsed_time_s`` so that activities with missing cumulative
+    distance still produce meaningful grade values.
+    """
     enriched: list[dict] = []
+    prev_dist: float = 0.0
+    prev_time: float = 0.0
     for i, rec in enumerate(records):
         r = dict(rec)
         r["grade"] = 0.0
@@ -700,7 +721,19 @@ def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
             prev = records[i - 1]
             alt = rec.get("altitude_m")
             prev_alt = prev.get("altitude_m")
-            dist = (rec.get("distance_m") or 0.0) - (prev.get("distance_m") or 0.0)
+            # Compute horizontal distance delta with speed*Δt fallback
+            d = rec.get("distance_m")
+            d_prev = prev.get("distance_m")
+            if d is not None and d_prev is not None:
+                dist = d - d_prev
+            else:
+                spd = rec.get("speed_mps")
+                t = rec.get("elapsed_time_s") or 0.0
+                t_prev = prev.get("elapsed_time_s") or 0.0
+                if spd is not None and spd > 0:
+                    dist = spd * max(t - t_prev, 0.0)
+                else:
+                    dist = 0.0
             if alt is not None and prev_alt is not None and dist > 0:
                 r["grade"] = ((alt - prev_alt) / dist) * 100.0
         enriched.append(r)
