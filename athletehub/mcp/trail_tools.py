@@ -366,11 +366,11 @@ def trail_hiking_ratio(
     """Predict run/hike ratio for a race based on training history."""
 
     if race_distance_km <= 0:
-        return {"error": "race_distance_km must be a positive number"}
+        return {"source": "input", "error": "race_distance_km must be a positive number"}
     if race_elevation_gain_m < 0:
-        return {"error": "race_elevation_gain_m must be non-negative"}
+        return {"source": "input", "error": "race_elevation_gain_m must be non-negative"}
     if hiking_pace_threshold_min_per_km <= 0:
-        return {"error": "hiking_pace_threshold_min_per_km must be a positive number"}
+        return {"source": "input", "error": "hiking_pace_threshold_min_per_km must be a positive number"}
 
     window = max(days, 1)
     since = (date.today() - timedelta(days=window - 1)).isoformat()
@@ -526,11 +526,11 @@ def trail_cutoff_risk(
     """Predict whether the athlete risks missing race cutoffs."""
 
     if race_distance_km <= 0:
-        return {"error": "race_distance_km must be a positive number"}
+        return {"source": "input", "error": "race_distance_km must be a positive number"}
     if race_elevation_gain_m < 0:
-        return {"error": "race_elevation_gain_m must be non-negative"}
+        return {"source": "input", "error": "race_elevation_gain_m must be non-negative"}
     if cutoff_time_minutes <= 0:
-        return {"error": "cutoff_time_minutes must be a positive number"}
+        return {"source": "input", "error": "cutoff_time_minutes must be a positive number"}
 
     window = max(days, 1)
     since = (date.today() - timedelta(days=window - 1)).isoformat()
