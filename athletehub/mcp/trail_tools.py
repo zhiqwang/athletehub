@@ -339,16 +339,29 @@ def trail_hiking_ratio(
     if not activities:
         return _hiking_ratio_no_data(race_distance_km, race_elevation_gain_m, race_cd)
 
+    activity_ids = [act["id"] for act in activities]
+    record_placeholders = ", ".join("?" for _ in activity_ids)
+    all_records = fetch_all(
+        f"""
+        SELECT activity_id, speed_mps, distance_m
+        FROM activity_records
+        WHERE activity_id IN ({record_placeholders})
+        ORDER BY activity_id, sample_index
+        """,
+        tuple(activity_ids),
+    )
+    records_by_activity: dict[int, list[dict]] = {}
+    for rec in all_records:
+        activity_id = rec["activity_id"]
+        records_by_activity.setdefault(activity_id, []).append(rec)
+
     # Per-activity analysis
     activity_stats: list[dict] = []
     all_running_speeds: list[float] = []
     all_hiking_speeds: list[float] = []
 
     for act in activities:
-        records = fetch_all(
-            "SELECT speed_mps, distance_m FROM activity_records WHERE activity_id = ? ORDER BY sample_index",
-            (act["id"],),
-        )
+        records = records_by_activity.get(act["id"], [])
         if not records:
             continue
 
