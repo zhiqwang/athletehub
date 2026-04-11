@@ -269,7 +269,7 @@ def _build_summary(sections: list[dict], total_distance_m: float) -> dict:
     steep_climb = sum(1 for s in sections if s["type"] == "steep_climb")
     steep_descent = sum(1 for s in sections if s["type"] == "steep_descent")
     technical = sum(1 for s in sections if s["type"] == "technical")
-    total_tech_m = sum(s["length_m"] for s in sections)
+    total_tech_m = sum(s["length_m"] for s in sections if s["type"] == "technical")
     pct = (total_tech_m / total_distance_m * 100.0) if total_distance_m > 0 else 0.0
     return {
         "steep_climb_count": steep_climb,
