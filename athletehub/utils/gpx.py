@@ -69,7 +69,7 @@ def detect_technical_sections_from_records(
     """Same analysis but using pre-fetched activity_records (list of dicts).
 
     Each dict should contain at minimum ``latitude``, ``longitude``,
-    ``altitude_m``.  ``speed_mps`` is used when available.
+    ``altitude_m``.
     """
 
     points: list[_TrackPoint] = []
@@ -78,13 +78,12 @@ def detect_technical_sections_from_records(
         lat = rec.get("latitude")
         lon = rec.get("longitude")
         ele = rec.get("altitude_m")
-        speed = rec.get("speed_mps")
         if lat is None or lon is None:
             continue
         if i > 0 and points:
             prev = points[-1]
             cumulative_distance += _haversine_m(prev.lat, prev.lon, lat, lon)
-        points.append(_TrackPoint(lat=lat, lon=lon, elevation=ele, cumulative_m=cumulative_distance, speed=speed))
+        points.append(_TrackPoint(lat=lat, lon=lon, elevation=ele, cumulative_m=cumulative_distance))
 
     return _detect_sections_from_points(
         points,
@@ -101,7 +100,7 @@ def detect_technical_sections_from_records(
 
 
 class _TrackPoint:
-    __slots__ = ("lat", "lon", "elevation", "cumulative_m", "speed")
+    __slots__ = ("lat", "lon", "elevation", "cumulative_m")
 
     def __init__(
         self,
@@ -109,13 +108,11 @@ class _TrackPoint:
         lon: float,
         elevation: float | None,
         cumulative_m: float,
-        speed: float | None = None,
     ) -> None:
         self.lat = lat
         self.lon = lon
         self.elevation = elevation
         self.cumulative_m = cumulative_m
-        self.speed = speed
 
 
 def _parse_gpx_trackpoints(path: str | Path) -> list[_TrackPoint]:

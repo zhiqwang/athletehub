@@ -95,7 +95,7 @@ def trail_technical_section_detector(
     if activity_id is not None:
         records = fetch_all(
             """
-            SELECT latitude, longitude, altitude_m, speed_mps
+            SELECT latitude, longitude, altitude_m
             FROM activity_records
             WHERE activity_id = ?
             ORDER BY sample_index
@@ -531,7 +531,10 @@ def trail_cutoff_risk(
 
     # Compute hiking percentage from already-fetched data to avoid redundant
     # DB queries that trail_hiking_ratio() would perform.
-    hiking_pct = _compute_hiking_pct_from_records(records_by_activity, activities)
+    # Uses the same default threshold (~9:00 min/km) as trail_hiking_ratio.
+    hiking_pct_raw = _compute_hiking_pct_from_records(records_by_activity, activities)
+    hiking_pct = hiking_pct_raw if hiking_pct_raw is not None else 30.0
+    hiking_pct_estimated = hiking_pct_raw is None
 
     # Base estimated time
     est_time_s = (
@@ -591,6 +594,7 @@ def trail_cutoff_risk(
             "avg_climb_pace": format_pace(avg_climb),
             "avg_descent_pace": format_pace(avg_descent),
             "predicted_hiking_pct": round(hiking_pct, 1),
+            "hiking_pct_is_estimated": hiking_pct_estimated,
         },
         "adjustments": {
             "heat_penalty_s_per_km": round(heat_penalty, 1),
@@ -872,13 +876,13 @@ def _compute_hiking_pct_from_records(
     records_by_activity: dict[int, list[dict]],
     activities: list[dict],
     min_running_speed_mps: float = 1.852,  # ~9:00 min/km
-) -> float:
+) -> float | None:
     """Estimate hiking percentage from already-fetched records.
 
     Records with speed at or above *min_running_speed_mps* (default
     ~1.852 m/s ≈ 9:00 min/km) are counted as running; slower records
-    are counted as hiking.  Returns 30.0 as a fallback when no usable
-    data is available.
+    are counted as hiking.  Returns ``None`` when no usable speed data
+    is available, letting callers decide on a fallback.
     """
     total_run = 0.0
     total_hike = 0.0
@@ -897,5 +901,5 @@ def _compute_hiking_pct_from_records(
                     total_hike += delta
     total = total_run + total_hike
     if total <= 0:
-        return 30.0
+        return None
     return total_hike / total * 100.0

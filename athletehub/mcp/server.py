@@ -112,7 +112,7 @@ def build_server():
         grade_threshold: float = 15.0,
         min_section_length_m: float = 50.0,
     ) -> dict:
-        """Detect technical sections (steep slopes, rocky terrain, pace anomalies) from a GPX file or activity records."""
+        """Detect technical sections (steep slopes, rocky terrain) from a GPX file or activity records."""
 
         return trail_technical_section_detector_tool(
             gpx_path=gpx_path,
