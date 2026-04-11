@@ -871,12 +871,14 @@ def _cutoff_recommendations(
 def _compute_hiking_pct_from_records(
     records_by_activity: dict[int, list[dict]],
     activities: list[dict],
-    hiking_speed_threshold: float = 1.852,  # ~9:00 min/km
+    min_running_speed_mps: float = 1.852,  # ~9:00 min/km
 ) -> float:
     """Estimate hiking percentage from already-fetched records.
 
-    Uses a default speed threshold of ~1.852 m/s (9:00 min/km).
-    Returns 30.0 as a fallback when no usable data is available.
+    Records with speed at or above *min_running_speed_mps* (default
+    ~1.852 m/s ≈ 9:00 min/km) are counted as running; slower records
+    are counted as hiking.  Returns 30.0 as a fallback when no usable
+    data is available.
     """
     total_run = 0.0
     total_hike = 0.0
@@ -889,7 +891,7 @@ def _compute_hiking_pct_from_records(
             delta = max(d - prev_dist, 0.0)
             prev_dist = d
             if spd is not None and spd > 0:
-                if spd >= hiking_speed_threshold:
+                if spd >= min_running_speed_mps:
                     total_run += delta
                 else:
                     total_hike += delta
