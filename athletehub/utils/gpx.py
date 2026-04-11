@@ -6,16 +6,7 @@ from pathlib import Path
 
 
 def summarize_gpx(path: str | Path) -> dict:
-    file_path = Path(path).expanduser()
-    root = ET.parse(file_path).getroot()
-
-    points: list[tuple[float, float, float | None]] = []
-    for node in root.findall(".//{*}trkpt"):
-        lat = float(node.attrib["lat"])
-        lon = float(node.attrib["lon"])
-        elevation_node = node.find("{*}ele")
-        elevation = float(elevation_node.text) if elevation_node is not None else None
-        points.append((lat, lon, elevation))
+    points = _parse_gpx_raw_points(path)
 
     distance_m = 0.0
     elevation_gain_m = 0.0
@@ -115,18 +106,28 @@ class _TrackPoint:
         self.cumulative_m = cumulative_m
 
 
-def _parse_gpx_trackpoints(path: str | Path) -> list[_TrackPoint]:
-    """Parse a GPX file into a list of ``_TrackPoint``."""
+def _parse_gpx_raw_points(path: str | Path) -> list[tuple[float, float, float | None]]:
+    """Parse a GPX file into a list of ``(lat, lon, elevation)`` tuples.
+
+    This is the single shared parser used by both :func:`summarize_gpx` and
+    :func:`detect_technical_sections`.
+    """
     file_path = Path(path).expanduser()
     root = ET.parse(file_path).getroot()
 
-    raw_points: list[tuple[float, float, float | None]] = []
+    points: list[tuple[float, float, float | None]] = []
     for node in root.findall(".//{*}trkpt"):
         lat = float(node.attrib["lat"])
         lon = float(node.attrib["lon"])
         ele_node = node.find("{*}ele")
         elevation = float(ele_node.text) if ele_node is not None else None
-        raw_points.append((lat, lon, elevation))
+        points.append((lat, lon, elevation))
+    return points
+
+
+def _parse_gpx_trackpoints(path: str | Path) -> list[_TrackPoint]:
+    """Parse a GPX file into a list of ``_TrackPoint``."""
+    raw_points = _parse_gpx_raw_points(path)
 
     points: list[_TrackPoint] = []
     cumulative = 0.0

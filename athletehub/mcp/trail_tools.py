@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from datetime import date, timedelta
+from pathlib import Path
 
 from athletehub.db.db import fetch_all, fetch_one
 from athletehub.utils.elevation import climbing_density, compute_vam
@@ -84,6 +85,10 @@ def trail_technical_section_detector(
     from a GPX file *or* from stored activity records."""
 
     if gpx_path is not None:
+        # Restrict to safe relative paths to prevent arbitrary filesystem reads.
+        p = Path(gpx_path)
+        if p.is_absolute() or ".." in p.parts:
+            return {"error": "gpx_path must be a relative path without '..' components"}
         result = _gpx_detect(
             gpx_path,
             grade_threshold=grade_threshold,
@@ -103,7 +108,7 @@ def trail_technical_section_detector(
             (activity_id,),
         )
         if not records:
-            return {"source": "activity", "error": "No records found for activity_id"}
+            return {"source": "activity", "activity_id": activity_id, "error": "No records found for activity_id"}
         result = _records_detect(
             records,
             grade_threshold=grade_threshold,
@@ -345,9 +350,11 @@ def trail_hiking_ratio(
         """
         SELECT ar.activity_id, ar.speed_mps, ar.distance_m
         FROM activity_records ar
-        JOIN activities a ON a.id = ar.activity_id
-        WHERE date(a.started_at) >= ?
-          AND a.sport IN ('trail_run', 'hike', 'ultra_trail')
+        WHERE ar.activity_id IN (
+            SELECT id FROM activities
+            WHERE date(started_at) >= ?
+              AND sport IN ('trail_run', 'hike', 'ultra_trail')
+        )
         ORDER BY ar.activity_id, ar.sample_index
         """,
         (since,),
@@ -484,24 +491,17 @@ def trail_cutoff_risk(
         SELECT ar.activity_id, ar.altitude_m, ar.speed_mps,
                ar.distance_m, ar.elapsed_time_s
         FROM activity_records ar
-        JOIN activities a ON a.id = ar.activity_id
-        WHERE date(a.started_at) >= ?
-          AND a.sport IN ('trail_run', 'hike', 'ultra_trail')
+        WHERE ar.activity_id IN (
+            SELECT id FROM activities
+            WHERE date(started_at) >= ?
+              AND sport IN ('trail_run', 'hike', 'ultra_trail')
+        )
         ORDER BY ar.activity_id, ar.sample_index
         """,
         (since,),
     )
     for rec in all_records:
-        activity_id = rec["activity_id"]
-        bucket = records_by_activity.setdefault(activity_id, [])
-        bucket.append(
-            {
-                "altitude_m": rec["altitude_m"],
-                "speed_mps": rec["speed_mps"],
-                "distance_m": rec["distance_m"],
-                "elapsed_time_s": rec["elapsed_time_s"],
-            }
-        )
+        records_by_activity.setdefault(rec["activity_id"], []).append(rec)
 
     for act in activities:
         records = records_by_activity.get(act["id"], [])
