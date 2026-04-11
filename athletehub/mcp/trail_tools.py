@@ -533,8 +533,8 @@ def trail_cutoff_risk(
     # DB queries that trail_hiking_ratio() would perform.
     # Uses the same default threshold (~9:00 min/km) as trail_hiking_ratio.
     hiking_pct_raw = _compute_hiking_pct_from_records(records_by_activity, activities)
-    hiking_pct = hiking_pct_raw if hiking_pct_raw is not None else 30.0
     hiking_pct_estimated = hiking_pct_raw is None
+    hiking_pct = 30.0 if hiking_pct_estimated else hiking_pct_raw
 
     # Base estimated time
     est_time_s = (
