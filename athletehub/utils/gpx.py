@@ -155,6 +155,9 @@ def _detect_sections_from_points(
             "summary": _empty_summary(),
         }
 
+    if window_size < 3 or window_size % 2 == 0:
+        raise ValueError("window_size must be an odd integer >= 3")
+
     total_distance_m = points[-1].cumulative_m
 
     # --- Compute per-window classifications ---
