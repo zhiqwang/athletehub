@@ -300,7 +300,7 @@ def trail_downhill_risk(
         end_dist_raw = seg[-1].get("distance_m")
         start_dist_raw = seg[0].get("distance_m")
         if end_dist_raw is not None and start_dist_raw is not None:
-            seg_dist = abs(end_dist_raw - start_dist_raw) if len(seg) >= 2 else 0.0
+            seg_dist = max(end_dist_raw - start_dist_raw, 0.0) if len(seg) >= 2 else 0.0
             start_dist = start_dist_raw
             end_dist = end_dist_raw
         else:
@@ -513,7 +513,7 @@ def trail_cutoff_risk(
 
     activities = fetch_all(
         """
-        SELECT id, distance_m, elevation_gain_m, moving_time_s
+        SELECT id, distance_m, elevation_gain_m
         FROM activities
         WHERE date(started_at) >= ?
           AND sport IN ('trail_run', 'hike', 'ultra_trail')
