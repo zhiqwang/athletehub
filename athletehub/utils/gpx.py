@@ -160,6 +160,12 @@ def _detect_sections_from_points(
 
     if window_size < 3 or window_size % 2 == 0:
         raise ValueError("window_size must be an odd integer >= 3")
+    if grade_threshold <= 0:
+        raise ValueError("grade_threshold must be positive")
+    if min_section_length_m < 0:
+        raise ValueError("min_section_length_m must be non-negative")
+    if oscillation_threshold_m < 0:
+        raise ValueError("oscillation_threshold_m must be non-negative")
 
     total_distance_m = points[-1].cumulative_m
 

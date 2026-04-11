@@ -87,20 +87,20 @@ def trail_technical_section_detector(
     from a GPX file *or* from stored activity records."""
 
     if gpx_path is not None and activity_id is not None:
-        return {"error": "Provide either gpx_path or activity_id, not both"}
+        return {"source": "input", "error": "Provide either gpx_path or activity_id, not both"}
 
     if gpx_path is not None:
         # Restrict to safe relative paths within raw_data_dir.
         p = Path(gpx_path)
         if p.is_absolute() or ".." in p.parts or (p.parts and p.parts[0].startswith("~")):
-            return {"error": "gpx_path must be a relative path without '..' components and must not start with '~'"}
+            return {"source": "gpx", "error": "gpx_path must be a relative path without '..' components and must not start with '~'"}
         if p.suffix.lower() != ".gpx":
-            return {"error": "gpx_path must have a .gpx extension"}
+            return {"source": "gpx", "error": "gpx_path must have a .gpx extension"}
         base_dir = get_settings().raw_data_dir
         resolved = (base_dir / p).resolve()
         resolved_base = base_dir.resolve()
         if not resolved.is_relative_to(resolved_base):
-            return {"error": "gpx_path resolves outside the allowed data directory"}
+            return {"source": "gpx", "error": "gpx_path resolves outside the allowed data directory"}
         if not resolved.is_file():
             return {"source": "gpx", "error": f"GPX file not found: {gpx_path}"}
         try:
@@ -136,9 +136,10 @@ def trail_technical_section_detector(
             min_section_length_m=min_section_length_m,
         )
         result["source"] = "activity"
+        result["activity_id"] = activity_id
         return result
 
-    return {"error": "Provide either gpx_path or activity_id"}
+    return {"source": "input", "error": "Provide either gpx_path or activity_id"}
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +520,8 @@ def trail_cutoff_risk(
         return {"error": "race_distance_km must be a positive number"}
     if race_elevation_gain_m < 0:
         return {"error": "race_elevation_gain_m must be non-negative"}
+    if cutoff_time_minutes <= 0:
+        return {"error": "cutoff_time_minutes must be a positive number"}
 
     window = max(days, 1)
     since = (date.today() - timedelta(days=window - 1)).isoformat()
@@ -614,9 +617,6 @@ def trail_cutoff_risk(
     if est_hours > 4.0:
         fatigue_factor = 1.0 + (est_hours - 4.0) * 0.02
         est_time_s *= fatigue_factor
-
-    if cutoff_time_minutes <= 0:
-        return {"error": "cutoff_time_minutes must be a positive number"}
 
     est_finish_min = est_time_s / 60.0
     margin_pct = (cutoff_time_minutes - est_finish_min) / cutoff_time_minutes * 100.0
