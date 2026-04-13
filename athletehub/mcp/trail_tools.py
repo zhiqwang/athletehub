@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import xml.etree.ElementTree as ET
+from collections.abc import Iterator
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -19,6 +20,32 @@ from athletehub.utils.weather import heat_adjustment_seconds_per_km
 # ~1.852 m/s corresponds to ~9:00 min/km.
 _DEFAULT_HIKING_THRESHOLD_MIN_PER_KM = 9.0
 _DEFAULT_MIN_RUNNING_SPEED_MPS = 1000.0 / (_DEFAULT_HIKING_THRESHOLD_MIN_PER_KM * 60.0)
+
+
+def _iter_record_deltas(records: list[dict]) -> Iterator[tuple[float, float | None]]:
+    """Yield ``(distance_delta, speed_mps)`` for each record.
+
+    Computes per-sample distance using ``distance_m`` (preferred) or
+    ``speed_mps * Δelapsed_time_s`` as a fallback.  The first sample
+    always yields ``delta = 0.0`` to avoid spurious large deltas when
+    records start mid-activity with non-zero cumulative values.
+    """
+    prev_dist: float | None = None
+    prev_time: float | None = None
+    for rec in records:
+        spd = rec.get("speed_mps")
+        d = rec.get("distance_m")
+        t = rec.get("elapsed_time_s") or 0.0
+        if d is not None:
+            delta = max(d - prev_dist, 0.0) if prev_dist is not None else 0.0
+            prev_dist = d
+        elif spd is not None and spd > 0:
+            dt = max(t - prev_time, 0.0) if prev_time is not None else 0.0
+            delta = spd * dt
+        else:
+            delta = 0.0
+        prev_time = t
+        yield delta, spd
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +134,7 @@ def trail_technical_section_detector(
         if not resolved.is_relative_to(resolved_base):
             return {"source": "input", "error": "gpx_path resolves outside the allowed data directory"}
         if not resolved.is_file():
-            return {"source": "input", "error": f"GPX file not found: {gpx_path}"}
+            return {"source": "gpx", "error": f"GPX file not found: {gpx_path}"}
         try:
             result = _gpx_detect(
                 str(resolved),
@@ -429,21 +456,7 @@ def trail_hiking_ratio(
 
         run_dist = 0.0
         hike_dist = 0.0
-        prev_dist: float | None = None
-        prev_time: float | None = None
-        for rec in records:
-            spd = rec.get("speed_mps")
-            d = rec.get("distance_m")
-            t = rec.get("elapsed_time_s") or 0.0
-            if d is not None:
-                delta = max(d - prev_dist, 0.0) if prev_dist is not None else 0.0
-                prev_dist = d
-            elif spd is not None and spd > 0:
-                dt = max(t - prev_time, 0.0) if prev_time is not None else 0.0
-                delta = spd * dt
-            else:
-                delta = 0.0
-            prev_time = t
+        for delta, spd in _iter_record_deltas(records):
             if spd is not None and spd > 0:
                 if spd >= speed_threshold:
                     run_dist += delta
@@ -999,21 +1012,7 @@ def _compute_hiking_pct_from_records(
     total_hike = 0.0
     for act in activities:
         records = records_by_activity.get(act["id"], [])
-        prev_dist: float | None = None
-        prev_time: float | None = None
-        for rec in records:
-            spd = rec.get("speed_mps")
-            d = rec.get("distance_m")
-            t = rec.get("elapsed_time_s") or 0.0
-            if d is not None:
-                delta = max(d - prev_dist, 0.0) if prev_dist is not None else 0.0
-                prev_dist = d
-            elif spd is not None and spd > 0:
-                dt = max(t - prev_time, 0.0) if prev_time is not None else 0.0
-                delta = spd * dt
-            else:
-                delta = 0.0
-            prev_time = t
+        for delta, spd in _iter_record_deltas(records):
             if spd is not None and spd > 0:
                 if spd >= min_running_speed_mps:
                     total_run += delta
