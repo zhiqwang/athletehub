@@ -29,6 +29,10 @@ def _iter_record_deltas(records: list[dict]) -> Iterator[tuple[float, float | No
     ``speed_mps * Δelapsed_time_s`` as a fallback.  The first sample
     always yields ``delta = 0.0`` to avoid spurious large deltas when
     records start mid-activity with non-zero cumulative values.
+
+    When ``distance_m`` appears for the first time (``prev_dist`` is
+    ``None``), the speed×Δt fallback is used for that single sample so
+    that the interval distance is not dropped.
     """
     prev_dist: float | None = None
     prev_time: float | None = None
@@ -36,8 +40,16 @@ def _iter_record_deltas(records: list[dict]) -> Iterator[tuple[float, float | No
         spd = rec.get("speed_mps")
         d = rec.get("distance_m")
         t = rec.get("elapsed_time_s") or 0.0
-        if d is not None:
-            delta = max(d - prev_dist, 0.0) if prev_dist is not None else 0.0
+        if d is not None and prev_dist is not None:
+            delta = max(d - prev_dist, 0.0)
+            prev_dist = d
+        elif d is not None:
+            # First appearance of distance_m — use speed×Δt if available
+            # so the interval is not lost, then start tracking cumulative.
+            if spd is not None and spd > 0 and prev_time is not None:
+                delta = spd * max(t - prev_time, 0.0)
+            else:
+                delta = 0.0
             prev_dist = d
         elif spd is not None and spd > 0:
             dt = max(t - prev_time, 0.0) if prev_time is not None else 0.0
@@ -79,19 +91,24 @@ def trail_profile(days: int = 90) -> dict:
     window = max(days, 1)
     since = (date.today() - timedelta(days=window - 1)).isoformat()
 
-    summary = fetch_one(
-        """
+    summary = (
+        fetch_one(
+            """
         SELECT
             COUNT(*) AS trail_sessions,
             ROUND(COALESCE(SUM(distance_m), 0) / 1000.0, 2) AS total_distance_km,
             ROUND(COALESCE(SUM(elevation_gain_m), 0), 0) AS total_climb_m,
-            ROUND(COALESCE(AVG(elevation_gain_m / NULLIF(distance_m / 1000.0, 0)), 0), 1) AS avg_climb_per_km_m
+            ROUND(COALESCE(
+                AVG(elevation_gain_m / NULLIF(distance_m / 1000.0, 0)), 0
+            ), 1) AS avg_climb_per_km_m
         FROM activities
         WHERE date(started_at) >= ?
           AND sport IN ('trail_run', 'hike', 'ultra_trail')
         """,
-        (since,),
-    ) or {}
+            (since,),
+        )
+        or {}
+    )
 
     total_climb = float(summary.get("total_climb_m") or 0.0)
     total_distance = float(summary.get("total_distance_km") or 0.0)
@@ -125,16 +142,38 @@ def trail_technical_section_detector(
         # Restrict to safe relative paths within raw_data_dir.
         p = Path(gpx_path)
         if p.is_absolute() or ".." in p.parts or (p.parts and p.parts[0].startswith("~")):
-            return {"source": "input", "error": "gpx_path must be a relative path without '..' components and must not start with '~'"}
+            return {
+                "source": "input",
+                "error": (
+                    "gpx_path must be a relative path without"
+                    " '..' components and must not start with '~'"
+                ),
+            }
         if p.suffix.lower() != ".gpx":
             return {"source": "input", "error": "gpx_path must have a .gpx extension"}
         base_dir = get_settings().raw_data_dir
         resolved = (base_dir / p).resolve()
         resolved_base = base_dir.resolve()
         if not resolved.is_relative_to(resolved_base):
-            return {"source": "input", "error": "gpx_path resolves outside the allowed data directory"}
+            return {
+                "source": "input",
+                "error": "gpx_path resolves outside the allowed data directory",
+            }
         if not resolved.is_file():
             return {"source": "gpx", "error": f"GPX file not found: {gpx_path}"}
+        # Validate numeric parameters before calling the parser so that
+        # any ValueError from the GPX parser itself (e.g. bad lat/lon)
+        # is correctly attributed to source="gpx".
+        if grade_threshold <= 0:
+            return {
+                "source": "input",
+                "error": "grade_threshold must be positive",
+            }
+        if min_section_length_m < 0:
+            return {
+                "source": "input",
+                "error": "min_section_length_m must be non-negative",
+            }
         try:
             result = _gpx_detect(
                 str(resolved),
@@ -145,9 +184,7 @@ def trail_technical_section_detector(
             return {"source": "gpx", "error": f"Cannot read GPX file: {exc}"}
         except ET.ParseError as exc:
             return {"source": "gpx", "error": f"Invalid GPX XML: {exc}"}
-        except ValueError as exc:
-            return {"source": "input", "error": str(exc)}
-        except KeyError as exc:
+        except (ValueError, KeyError) as exc:
             return {"source": "gpx", "error": f"Invalid GPX data: {exc}"}
         result["source"] = "gpx"
         return result
@@ -163,7 +200,11 @@ def trail_technical_section_detector(
             (activity_id,),
         )
         if not records:
-            return {"source": "activity", "activity_id": activity_id, "error": "No records found for activity_id"}
+            return {
+                "source": "activity",
+                "activity_id": activity_id,
+                "error": "No records found for activity_id",
+            }
         try:
             result = _records_detect(
                 records,
@@ -229,8 +270,8 @@ def trail_climb_efficiency(
 
         segments_out.append(
             {
-                "start_km": round((seg[0].get("distance_m") or 0.0) / 1000.0, 2),
-                "end_km": round((seg[-1].get("distance_m") or 0.0) / 1000.0, 2),
+                "start_km": round(seg[0]["_cumulative_dist_m"] / 1000.0, 2),
+                "end_km": round(seg[-1]["_cumulative_dist_m"] / 1000.0, 2),
                 "gain_m": round(gain, 1),
                 "avg_grade": round(avg_grade, 1),
                 "vam": round(vam, 0),
@@ -243,8 +284,12 @@ def trail_climb_efficiency(
     overall_vam = compute_vam(total_climb_m, total_climb_time)
 
     # Aggregate HR/cadence on climbs vs flats
-    climb_hrs = [r["heart_rate_bpm"] for s in climb_segs for r in s if r["heart_rate_bpm"] is not None]
-    climb_cadences = [r["cadence_spm"] for s in climb_segs for r in s if r["cadence_spm"] is not None]
+    climb_hrs = [
+        r["heart_rate_bpm"] for s in climb_segs for r in s if r["heart_rate_bpm"] is not None
+    ]
+    climb_cadences = [
+        r["cadence_spm"] for s in climb_segs for r in s if r["cadence_spm"] is not None
+    ]
     flat_cadences = [r["cadence_spm"] for s in flat_segs for r in s if r["cadence_spm"] is not None]
 
     avg_hr_climbs = safe_mean(climb_hrs) or 0.0
@@ -326,7 +371,9 @@ def trail_downhill_risk(
         )
 
         # Speed consistency (CV)
-        seg_speeds = [r["speed_mps"] for r in seg if r["speed_mps"] is not None and r["speed_mps"] > 0]
+        seg_speeds = [
+            r["speed_mps"] for r in seg if r["speed_mps"] is not None and r["speed_mps"] > 0
+        ]
         speed_cv = _coefficient_of_variation(seg_speeds)
 
         # Compute risk score components
@@ -337,23 +384,9 @@ def trail_downhill_risk(
         speed_score = min(speed_cv * 100.0, 20.0)
         risk_score = grade_score + hr_drift_score + cadence_score_val + speed_score
 
-        end_dist_raw = seg[-1].get("distance_m")
-        start_dist_raw = seg[0].get("distance_m")
-        if end_dist_raw is not None and start_dist_raw is not None:
-            seg_dist = max(end_dist_raw - start_dist_raw, 0.0) if len(seg) >= 2 else 0.0
-            start_dist = start_dist_raw
-            end_dist = end_dist_raw
-        else:
-            # Estimate segment distance from speed_mps * Δt
-            seg_dist = 0.0
-            for k in range(1, len(seg)):
-                spd = seg[k].get("speed_mps")
-                t = seg[k].get("elapsed_time_s") or 0.0
-                t_prev = seg[k - 1].get("elapsed_time_s") or 0.0
-                if spd is not None and spd > 0:
-                    seg_dist += spd * max(t - t_prev, 0.0)
-            start_dist = start_dist_raw or 0.0
-            end_dist = (start_dist_raw or 0.0) + seg_dist
+        start_dist = seg[0]["_cumulative_dist_m"]
+        end_dist = seg[-1]["_cumulative_dist_m"]
+        seg_dist = max(end_dist - start_dist, 0.0)
         weighted_risk += risk_score * seg_dist
         total_seg_dist += seg_dist
 
@@ -402,13 +435,20 @@ def trail_hiking_ratio(
     if race_elevation_gain_m < 0:
         return {"source": "input", "error": "race_elevation_gain_m must be non-negative"}
     if hiking_pace_threshold_min_per_km <= 0:
-        return {"source": "input", "error": "hiking_pace_threshold_min_per_km must be a positive number"}
+        return {
+            "source": "input",
+            "error": "hiking_pace_threshold_min_per_km must be a positive number",
+        }
 
     window = max(days, 1)
     since = (date.today() - timedelta(days=window - 1)).isoformat()
 
     # Speed threshold: convert min/km to m/s
-    speed_threshold = 1000.0 / (hiking_pace_threshold_min_per_km * 60.0) if hiking_pace_threshold_min_per_km > 0 else 0.0
+    speed_threshold = (
+        1000.0 / (hiking_pace_threshold_min_per_km * 60.0)
+        if hiking_pace_threshold_min_per_km > 0
+        else 0.0
+    )
 
     activities = fetch_all(
         """
@@ -507,7 +547,9 @@ def trail_hiking_ratio(
     if avg_hike_speed > 0:
         est_time_s += (race_distance_km * 1000.0 * hike_frac) / avg_hike_speed
 
-    confidence = "low" if len(activity_stats) < 3 else ("medium" if len(activity_stats) < 8 else "high")
+    confidence = (
+        "low" if len(activity_stats) < 3 else ("medium" if len(activity_stats) < 8 else "high")
+    )
 
     return {
         "race_distance_km": round(race_distance_km, 2),
@@ -565,7 +607,7 @@ def trail_cutoff_risk(
     )
 
     # Gather pace data by terrain type
-    flat_paces: list[float] = []   # seconds per km
+    flat_paces: list[float] = []  # seconds per km
     climb_paces: list[float] = []
     descent_paces: list[float] = []
 
@@ -610,7 +652,7 @@ def trail_cutoff_risk(
         if contributed:
             contributing_activities += 1
 
-    avg_flat = safe_mean(flat_paces) or 420.0   # 7:00/km default
+    avg_flat = safe_mean(flat_paces) or 420.0  # 7:00/km default
     avg_climb = safe_mean(climb_paces) or 600.0  # 10:00/km default
     avg_descent = safe_mean(descent_paces) or 330.0  # 5:30/km default
 
@@ -723,7 +765,10 @@ def _trail_recommendation(total_distance_km: float, total_climb_m: float) -> str
         return "No trail-specific sessions found in the selected window."
     if total_climb_m < 1000:
         return "Climbing volume is still low. Add vertical-specific work if racing trails soon."
-    return "Recent trail volume includes meaningful climbing. Focus next on terrain specificity and downhill resilience."
+    return (
+        "Recent trail volume includes meaningful climbing."
+        " Focus next on terrain specificity and downhill resilience."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -744,16 +789,25 @@ def _get_athlete_profile_for_activity(activity_id: int) -> dict | None:
 
 
 def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
-    """Add a ``grade`` key (percent) to each record based on consecutive altitude/distance.
+    """Add ``grade`` (percent) and ``_cumulative_dist_m`` to each record.
 
-    When ``distance_m`` is NULL, horizontal distance is estimated from
-    ``speed_mps * Δelapsed_time_s`` so that activities with missing cumulative
-    distance still produce meaningful grade values.
+    ``_cumulative_dist_m`` is a derived cumulative distance that uses the
+    native ``distance_m`` column when available and falls back to
+    ``speed_mps * Δelapsed_time_s`` otherwise.  This guarantees every
+    enriched record has a usable cumulative distance for segment start/end
+    km reporting even when ``distance_m`` is NULL.
+
+    When ``distance_m`` is NULL, horizontal distance for the grade
+    computation is also estimated from ``speed_mps * Δelapsed_time_s``
+    so that activities with missing cumulative distance still produce
+    meaningful grade values.
     """
     enriched: list[dict] = []
+    cumulative = 0.0
     for i, rec in enumerate(records):
         r = dict(rec)
         r["grade"] = 0.0
+        dist = 0.0
         if i > 0:
             prev = records[i - 1]
             alt = rec.get("altitude_m")
@@ -769,10 +823,11 @@ def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
                 t_prev = prev.get("elapsed_time_s") or 0.0
                 if spd is not None and spd > 0:
                     dist = spd * max(t - t_prev, 0.0)
-                else:
-                    dist = 0.0
+            dist = max(dist, 0.0)
             if alt is not None and prev_alt is not None and dist > 0:
                 r["grade"] = ((alt - prev_alt) / dist) * 100.0
+        cumulative += dist
+        r["_cumulative_dist_m"] = cumulative
         enriched.append(r)
     return enriched
 
@@ -890,16 +945,16 @@ def _downhill_recommendations(segments: list[dict]) -> list[str]:
 
     if avg_hr_drift > 10:
         recs.append(
-            "HR drift is high on descents — train eccentric downhill running to improve muscular resilience."
+            "HR drift is high on descents — train eccentric downhill"
+            " running to improve muscular resilience."
         )
     if avg_cad_change < -10:
         recs.append(
-            "Cadence drops significantly on descents — practice quick turnover on technical terrain."
+            "Cadence drops significantly on descents —"
+            " practice quick turnover on technical terrain."
         )
     if avg_speed_cv > 0.25:
-        recs.append(
-            "Speed is erratic on descents — work on consistent pacing and foot placement."
-        )
+        recs.append("Speed is erratic on descents — work on consistent pacing and foot placement.")
     if not recs:
         recs.append("Downhill metrics look reasonable. Maintain current technique training.")
     return recs
@@ -988,9 +1043,7 @@ def _cutoff_recommendations(
             "Practice race-day fueling in long training runs."
         )
     if not recs:
-        recs.append(
-            "Current training supports a comfortable finish within the cutoff."
-        )
+        recs.append("Current training supports a comfortable finish within the cutoff.")
     return recs
 
 

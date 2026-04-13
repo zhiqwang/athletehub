@@ -96,8 +96,7 @@ _STEEP_GPX = """\
 def _make_gpx(tmp_path: Path, points: list[tuple[float, float, float]]) -> Path:
     """Write a minimal GPX file with the given (lat, lon, ele) points."""
     xml_points = "\n".join(
-        f'<trkpt lat="{lat}" lon="{lon}"><ele>{ele}</ele></trkpt>'
-        for lat, lon, ele in points
+        f'<trkpt lat="{lat}" lon="{lon}"><ele>{ele}</ele></trkpt>' for lat, lon, ele in points
     )
     content = _STEEP_GPX.format(points=xml_points)
     gpx_path = tmp_path / "test_route.gpx"
@@ -139,7 +138,9 @@ class TestDetectTechnicalSections:
                 ele = 100.0
             points.append((lat, -74.0, ele))
         gpx_path = _make_gpx(tmp_path, points)
-        result = detect_technical_sections(gpx_path, grade_threshold=15.0, min_section_length_m=10.0)
+        result = detect_technical_sections(
+            gpx_path, grade_threshold=15.0, min_section_length_m=10.0
+        )
         # Should detect at least one technical section, ideally a steep_climb
         assert len(result["technical_sections"]) > 0
         types = [s["type"] for s in result["technical_sections"]]
@@ -163,7 +164,12 @@ class TestDetectTechnicalSections:
 class TestDetectTechnicalSectionsFromRecords:
     def test_basic(self):
         records = [
-            {"latitude": 40.0 + i * 0.0001, "longitude": -74.0, "altitude_m": 100.0, "speed_mps": 3.0}
+            {
+                "latitude": 40.0 + i * 0.0001,
+                "longitude": -74.0,
+                "altitude_m": 100.0,
+                "speed_mps": 3.0,
+            }
             for i in range(10)
         ]
         result = detect_technical_sections_from_records(records)

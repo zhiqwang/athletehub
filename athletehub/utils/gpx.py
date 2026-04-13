@@ -27,6 +27,7 @@ def summarize_gpx(path: str | Path) -> dict:
 # Technical-section detection
 # ---------------------------------------------------------------------------
 
+
 def detect_technical_sections(
     path: str | Path,
     grade_threshold: float = 15.0,
@@ -74,7 +75,9 @@ def detect_technical_sections_from_records(
         if i > 0 and points:
             prev = points[-1]
             cumulative_distance += _haversine_m(prev.lat, prev.lon, lat, lon)
-        points.append(_TrackPoint(lat=lat, lon=lon, elevation=ele, cumulative_m=cumulative_distance))
+        points.append(
+            _TrackPoint(lat=lat, lon=lon, elevation=ele, cumulative_m=cumulative_distance)
+        )
 
     return _detect_sections_from_points(
         points,
