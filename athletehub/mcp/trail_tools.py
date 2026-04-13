@@ -33,6 +33,10 @@ def _iter_record_deltas(records: list[dict]) -> Iterator[tuple[float, float | No
     When ``distance_m`` appears for the first time (``prev_dist`` is
     ``None``), the speed×Δt fallback is used for that single sample so
     that the interval distance is not dropped.
+
+    When ``distance_m`` disappears (becomes ``None``), ``prev_dist`` is
+    reset so that a later reappearance of ``distance_m`` is treated as
+    a fresh baseline rather than double-counting the gap interval.
     """
     prev_dist: float | None = None
     prev_time: float | None = None
@@ -54,8 +58,12 @@ def _iter_record_deltas(records: list[dict]) -> Iterator[tuple[float, float | No
         elif spd is not None and spd > 0:
             dt = max(t - prev_time, 0.0) if prev_time is not None else 0.0
             delta = spd * dt
+            # Reset prev_dist so a later reappearance of distance_m
+            # is treated as a fresh baseline, avoiding double-counting.
+            prev_dist = None
         else:
             delta = 0.0
+            prev_dist = None
         prev_time = t
         yield delta, spd
 
@@ -794,8 +802,11 @@ def _get_athlete_profile_for_activity(activity_id: int) -> dict | None:
 def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
     """Add ``grade`` (percent) and ``_cumulative_dist_m`` to each record.
 
-    ``_cumulative_dist_m`` is a derived cumulative distance that uses the
-    native ``distance_m`` column when available and falls back to
+    ``_cumulative_dist_m`` is a derived cumulative distance that preserves
+    the absolute ``distance_m`` baseline when the first record has a
+    non-zero value (e.g., records start mid-activity).  Subsequent
+    intervals use native ``distance_m`` deltas when both the current and
+    previous values are present, falling back to
     ``speed_mps * Δelapsed_time_s`` otherwise.  This guarantees every
     enriched record has a usable cumulative distance for segment start/end
     km reporting even when ``distance_m`` is NULL.
@@ -806,7 +817,9 @@ def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
     meaningful grade values.
     """
     enriched: list[dict] = []
-    cumulative_dist_m = 0.0
+    # Preserve the absolute baseline when the first record has distance_m.
+    first_dist = records[0].get("distance_m") if records else None
+    cumulative_dist_m = first_dist if first_dist is not None else 0.0
     for i, rec in enumerate(records):
         r = dict(rec)
         r["grade"] = 0.0
