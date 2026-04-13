@@ -803,7 +803,7 @@ def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
     meaningful grade values.
     """
     enriched: list[dict] = []
-    cumulative = 0.0
+    cumulative_dist_m = 0.0
     for i, rec in enumerate(records):
         r = dict(rec)
         r["grade"] = 0.0
@@ -826,8 +826,8 @@ def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
             dist = max(dist, 0.0)
             if alt is not None and prev_alt is not None and dist > 0:
                 r["grade"] = ((alt - prev_alt) / dist) * 100.0
-        cumulative += dist
-        r["_cumulative_dist_m"] = cumulative
+        cumulative_dist_m += dist
+        r["_cumulative_dist_m"] = cumulative_dist_m
         enriched.append(r)
     return enriched
 
