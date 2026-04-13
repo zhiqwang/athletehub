@@ -686,6 +686,7 @@ def trail_cutoff_risk(
     if est_hours > 4.0:
         fatigue_factor = 1.0 + (est_hours - 4.0) * 0.02
         est_time_s *= fatigue_factor
+        est_hours = est_time_s / 3600.0
 
     est_finish_min = est_time_s / 60.0
     margin_pct = (cutoff_time_minutes - est_finish_min) / cutoff_time_minutes * 100.0
@@ -718,7 +719,9 @@ def trail_cutoff_risk(
                 }
             )
 
-    recommendations = _cutoff_recommendations(margin_pct, est_hours, avg_climb, hiking_pct)
+    recommendations = _cutoff_recommendations(
+        margin_pct, est_hours, avg_climb, hiking_pct, hiking_pct_estimated
+    )
 
     return {
         "race_distance_km": round(race_distance_km, 2),
@@ -733,7 +736,7 @@ def trail_cutoff_risk(
             "avg_flat_pace": format_pace(avg_flat),
             "avg_climb_pace": format_pace(avg_climb),
             "avg_descent_pace": format_pace(avg_descent),
-            "predicted_hiking_pct": round(hiking_pct, 1),
+            "training_hiking_pct": round(hiking_pct, 1),
             "hiking_pct_is_estimated": hiking_pct_estimated,
         },
         "adjustments": {
@@ -1015,6 +1018,7 @@ def _cutoff_recommendations(
     estimated_hours: float,
     avg_climb_pace: float,
     hiking_pct: float,
+    hiking_pct_is_estimated: bool = False,
 ) -> list[str]:
     recs: list[str] = []
     if margin_pct < 0:
@@ -1033,10 +1037,16 @@ def _cutoff_recommendations(
             "hike-with-poles training."
         )
     if hiking_pct > 50:
-        recs.append(
-            "Predicted hiking percentage is high. Work on running more uphills "
-            "to shift the run/hike ratio."
-        )
+        if hiking_pct_is_estimated:
+            recs.append(
+                "Estimated hiking share is high (no speed data available). "
+                "Work on running more uphills to shift the run/hike ratio."
+            )
+        else:
+            recs.append(
+                "Training data shows a high hiking share. Work on running "
+                "more uphills to shift the run/hike ratio."
+            )
     if estimated_hours > 8 and margin_pct < 10:
         recs.append(
             "For a race of this duration, nutrition and sleep management are critical. "
