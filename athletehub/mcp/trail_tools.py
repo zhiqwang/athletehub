@@ -21,6 +21,11 @@ from athletehub.utils.weather import heat_adjustment_seconds_per_km
 _DEFAULT_HIKING_THRESHOLD_MIN_PER_KM = 9.0
 _DEFAULT_MIN_RUNNING_SPEED_MPS = 1000.0 / (_DEFAULT_HIKING_THRESHOLD_MIN_PER_KM * 60.0)
 
+# Maximum number of activities to analyse when fetching per-record data in
+# trail_hiking_ratio() and trail_cutoff_risk().  Limits memory usage and
+# keeps latency predictable for users with many recorded activities.
+_MAX_ACTIVITIES_FOR_RECORDS = 50
+
 
 def _iter_record_deltas(records: list[dict]) -> Iterator[tuple[float, float | None]]:
     """Yield ``(distance_delta, speed_mps)`` for each record.
@@ -43,20 +48,23 @@ def _iter_record_deltas(records: list[dict]) -> Iterator[tuple[float, float | No
     for rec in records:
         spd = rec.get("speed_mps")
         d = rec.get("distance_m")
-        t = rec.get("elapsed_time_s") or 0.0
+        t = rec.get("elapsed_time_s")  # keep None when missing
         if d is not None and prev_dist is not None:
             delta = max(d - prev_dist, 0.0)
             prev_dist = d
         elif d is not None:
             # First appearance of distance_m — use speed×Δt if available
             # so the interval is not lost, then start tracking cumulative.
-            if spd is not None and spd > 0 and prev_time is not None:
+            if spd is not None and spd > 0 and prev_time is not None and t is not None:
                 delta = spd * max(t - prev_time, 0.0)
             else:
                 delta = 0.0
             prev_dist = d
         elif spd is not None and spd > 0:
-            dt = max(t - prev_time, 0.0) if prev_time is not None else 0.0
+            if prev_time is not None and t is not None:
+                dt = max(t - prev_time, 0.0)
+            else:
+                dt = 0.0
             delta = spd * dt
             # Reset prev_dist so a later reappearance of distance_m
             # is treated as a fresh baseline, avoiding double-counting.
@@ -64,7 +72,8 @@ def _iter_record_deltas(records: list[dict]) -> Iterator[tuple[float, float | No
         else:
             delta = 0.0
             prev_dist = None
-        prev_time = t
+        if t is not None:
+            prev_time = t
         yield delta, spd
 
 
@@ -465,8 +474,9 @@ def trail_hiking_ratio(
         WHERE date(started_at) >= ?
           AND sport IN ('trail_run', 'hike', 'ultra_trail')
         ORDER BY started_at DESC
+        LIMIT ?
         """,
-        (since,),
+        (since, _MAX_ACTIVITIES_FOR_RECORDS),
     )
 
     race_cd = climbing_density(race_distance_km, race_elevation_gain_m)
@@ -474,18 +484,16 @@ def trail_hiking_ratio(
     if not activities:
         return _hiking_ratio_no_data(race_distance_km, race_elevation_gain_m, race_cd)
 
+    activity_ids = [a["id"] for a in activities]
+    placeholders = ",".join("?" * len(activity_ids))
     all_records = fetch_all(
-        """
+        f"""
         SELECT ar.activity_id, ar.speed_mps, ar.distance_m, ar.elapsed_time_s
         FROM activity_records ar
-        WHERE ar.activity_id IN (
-            SELECT id FROM activities
-            WHERE date(started_at) >= ?
-              AND sport IN ('trail_run', 'hike', 'ultra_trail')
-        )
+        WHERE ar.activity_id IN ({placeholders})
         ORDER BY ar.activity_id, ar.sample_index
         """,
-        (since,),
+        tuple(activity_ids),
     )
     records_by_activity: dict[int, list[dict]] = {}
     for rec in all_records:
@@ -610,8 +618,9 @@ def trail_cutoff_risk(
         WHERE date(started_at) >= ?
           AND sport IN ('trail_run', 'hike', 'ultra_trail')
         ORDER BY started_at DESC
+        LIMIT ?
         """,
-        (since,),
+        (since, _MAX_ACTIVITIES_FOR_RECORDS),
     )
 
     # Gather pace data by terrain type
@@ -620,20 +629,21 @@ def trail_cutoff_risk(
     descent_paces: list[float] = []
 
     records_by_activity: dict[int, list[dict]] = {}
-    all_records = fetch_all(
-        """
-        SELECT ar.activity_id, ar.altitude_m, ar.speed_mps,
-               ar.distance_m, ar.elapsed_time_s
-        FROM activity_records ar
-        WHERE ar.activity_id IN (
-            SELECT id FROM activities
-            WHERE date(started_at) >= ?
-              AND sport IN ('trail_run', 'hike', 'ultra_trail')
+    if activities:
+        activity_ids = [a["id"] for a in activities]
+        placeholders = ",".join("?" * len(activity_ids))
+        all_records = fetch_all(
+            f"""
+            SELECT ar.activity_id, ar.altitude_m, ar.speed_mps,
+                   ar.distance_m, ar.elapsed_time_s
+            FROM activity_records ar
+            WHERE ar.activity_id IN ({placeholders})
+            ORDER BY ar.activity_id, ar.sample_index
+            """,
+            tuple(activity_ids),
         )
-        ORDER BY ar.activity_id, ar.sample_index
-        """,
-        (since,),
-    )
+    else:
+        all_records = []
     for rec in all_records:
         records_by_activity.setdefault(rec["activity_id"], []).append(rec)
 
@@ -835,9 +845,9 @@ def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
                 dist = d - d_prev
             else:
                 spd = rec.get("speed_mps")
-                t = rec.get("elapsed_time_s") or 0.0
-                t_prev = prev.get("elapsed_time_s") or 0.0
-                if spd is not None and spd > 0:
+                t = rec.get("elapsed_time_s")
+                t_prev = prev.get("elapsed_time_s")
+                if spd is not None and spd > 0 and t is not None and t_prev is not None:
                     dist = spd * max(t - t_prev, 0.0)
             dist = max(dist, 0.0)
             if alt is not None and prev_alt is not None and dist > 0:
