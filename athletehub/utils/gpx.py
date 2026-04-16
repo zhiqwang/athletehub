@@ -143,7 +143,14 @@ def _parse_gpx_trackpoints(path: str | Path) -> list[_TrackPoint]:
         if i > 0:
             prev = raw_points[i - 1]
             cumulative += _haversine_m(prev[0], prev[1], lat, lon)
-        points.append(_TrackPoint(lat=lat, lon=lon, elevation=ele, cumulative_m=cumulative))
+        points.append(
+            _TrackPoint(
+                lat=lat,
+                lon=lon,
+                elevation=ele,
+                cumulative_m=cumulative,
+            )
+        )
     return points
 
 

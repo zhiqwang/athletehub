@@ -95,9 +95,10 @@ _STEEP_GPX = """\
 
 def _make_gpx(tmp_path: Path, points: list[tuple[float, float, float]]) -> Path:
     """Write a minimal GPX file with the given (lat, lon, ele) points."""
-    xml_points = "\n".join(
+    trkpts = [
         f'<trkpt lat="{lat}" lon="{lon}"><ele>{ele}</ele></trkpt>' for lat, lon, ele in points
-    )
+    ]
+    xml_points = "\n".join(trkpts)
     content = _STEEP_GPX.format(points=xml_points)
     gpx_path = tmp_path / "test_route.gpx"
     gpx_path.write_text(content, encoding="utf-8")

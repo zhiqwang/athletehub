@@ -307,7 +307,8 @@ def trail_climb_efficiency(
     climb_cadences = [
         r["cadence_spm"] for s in climb_segs for r in s if r["cadence_spm"] is not None
     ]
-    flat_cadences = [r["cadence_spm"] for s in flat_segs for r in s if r["cadence_spm"] is not None]
+    flat_recs = [r for s in flat_segs for r in s]
+    flat_cadences = [r["cadence_spm"] for r in flat_recs if r["cadence_spm"] is not None]
 
     avg_hr_climbs = safe_mean(climb_hrs) or 0.0
     avg_cad_climbs = safe_mean(climb_cadences) or 0.0
@@ -554,14 +555,19 @@ def trail_hiking_ratio(
     run_pace = (1000.0 / avg_run_speed / 60.0) if avg_run_speed > 0 else 0.0
     hike_pace = (1000.0 / avg_hike_speed / 60.0) if avg_hike_speed > 0 else 0.0
 
-    # Estimated finish time
+    # Estimated finish time — fall back to threshold speed when a
+    # fraction is non-zero but no training samples exist for that mode.
     run_frac = (100.0 - predicted_hiking) / 100.0
     hike_frac = predicted_hiking / 100.0
+
+    eff_run_speed = avg_run_speed or avg_hike_speed or speed_threshold
+    eff_hike_speed = avg_hike_speed or speed_threshold or avg_run_speed
+
     est_time_s = 0.0
-    if avg_run_speed > 0:
-        est_time_s += (race_distance_km * 1000.0 * run_frac) / avg_run_speed
-    if avg_hike_speed > 0:
-        est_time_s += (race_distance_km * 1000.0 * hike_frac) / avg_hike_speed
+    if eff_run_speed > 0 and run_frac > 0:
+        est_time_s += (race_distance_km * 1000.0 * run_frac) / eff_run_speed
+    if eff_hike_speed > 0 and hike_frac > 0:
+        est_time_s += (race_distance_km * 1000.0 * hike_frac) / eff_hike_speed
 
     confidence = (
         "low" if len(activity_stats) < 3 else ("medium" if len(activity_stats) < 8 else "high")
