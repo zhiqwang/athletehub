@@ -258,7 +258,10 @@ def _detect_sections_from_points(
         grades = sec["grades"]
         start_ele = sec["start_elevation"]
         end_ele = sec["end_elevation"]
-        ele_change = (end_ele - start_ele) if start_ele is not None and end_ele is not None else 0.0
+        if start_ele is not None and end_ele is not None:
+            ele_change = end_ele - start_ele
+        else:
+            ele_change = 0.0
         sections.append(
             {
                 "start_km": round(sec["start_m"] / 1000.0, 2),

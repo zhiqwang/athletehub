@@ -995,7 +995,11 @@ def _hiking_ratio_no_data(
         "race_distance_km": round(race_distance_km, 2),
         "race_elevation_gain_m": round(race_elevation_gain_m, 0),
         "race_climbing_density": round(race_cd, 1),
-        "training_data": {"activities_analyzed": 0, "avg_running_pct": 0.0, "avg_hiking_pct": 0.0},
+        "training_data": {
+            "activities_analyzed": 0,
+            "avg_running_pct": 0.0,
+            "avg_hiking_pct": 0.0,
+        },
         "predicted_running_pct": 50.0,
         "predicted_hiking_pct": 50.0,
         "avg_running_pace_min_per_km": 0.0,
