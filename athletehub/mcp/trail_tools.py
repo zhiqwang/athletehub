@@ -560,7 +560,7 @@ def trail_hiking_ratio(
     run_frac = (100.0 - predicted_hiking) / 100.0
     hike_frac = predicted_hiking / 100.0
 
-    eff_run_speed = avg_run_speed or avg_hike_speed or speed_threshold
+    eff_run_speed = avg_run_speed or speed_threshold or avg_hike_speed
     eff_hike_speed = avg_hike_speed or speed_threshold or avg_run_speed
 
     est_time_s = 0.0
