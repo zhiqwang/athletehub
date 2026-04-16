@@ -280,7 +280,7 @@ def trail_climb_efficiency(
         vam = compute_vam(gain, time_s)
         hrs = [r["heart_rate_bpm"] for r in seg if r["heart_rate_bpm"] is not None]
         cadences = [r["cadence_spm"] for r in seg if r["cadence_spm"] is not None]
-        avg_grade = safe_mean([r["grade"] for r in seg]) or 0.0
+        avg_grade = safe_mean([r["grade"] for r in seg[1:]]) or 0.0
 
         total_climb_m += gain
         total_climb_time += time_s
@@ -372,7 +372,7 @@ def trail_downhill_risk(
     for seg in descent_segs:
         loss = _segment_elevation_loss(seg)
         total_descent_m += loss
-        grades = [r["grade"] for r in seg]
+        grades = [r["grade"] for r in seg[1:]]
         avg_grade = safe_mean(grades) or 0.0
 
         # HR drift: compare first-quarter HR to last-quarter HR
