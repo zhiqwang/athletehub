@@ -715,6 +715,8 @@ def trail_cutoff_risk(
     if intermediate_cutoffs:
         checkpoints_out = []
         for cp in intermediate_cutoffs:
+            if not isinstance(cp, dict):
+                continue  # skip non-dict entries
             try:
                 cp_km = float(cp.get("km", 0.0))
                 cp_cutoff = float(cp.get("cutoff_minutes", 0.0))

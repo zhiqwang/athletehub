@@ -144,7 +144,7 @@ class TestDetectTechnicalSections:
         # Should detect at least one technical section, ideally a steep_climb
         assert len(result["technical_sections"]) > 0
         types = [s["type"] for s in result["technical_sections"]]
-        assert "steep_climb" in types or result["summary"]["steep_climb_count"] > 0  # may be merged
+        assert "steep_climb" in types or result["summary"]["steep_climb_count"] > 0
 
     def test_summary_keys(self, tmp_path: Path):
         points = [(40.0 + i * 0.0001, -74.0, 100.0 + i) for i in range(10)]
