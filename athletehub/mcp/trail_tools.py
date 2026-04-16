@@ -838,9 +838,7 @@ def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
     first_dist = records[0].get("distance_m") if records else None
     cumulative_dist_m = first_dist if first_dist is not None else 0.0
     deltas = _iter_record_deltas(records)
-    for i, (rec, (dist, _spd)) in enumerate(
-        zip(records, deltas),
-    ):
+    for i, (rec, (dist, _spd)) in enumerate(zip(records, deltas)):
         r = dict(rec)
         r["grade"] = 0.0
         if i > 0 and dist > 0:
