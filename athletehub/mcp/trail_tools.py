@@ -822,12 +822,11 @@ def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
 
     ``_cumulative_dist_m`` is a derived cumulative distance that preserves
     the absolute ``distance_m`` baseline when the first record has a
-    non-zero value (e.g., records start mid-activity).  Subsequent
-    intervals use native ``distance_m`` deltas when both the current and
-    previous values are present, falling back to
-    ``speed_mps * Δelapsed_time_s`` otherwise.  This guarantees every
-    enriched record has a usable cumulative distance for segment start/end
-    km reporting even when ``distance_m`` is NULL.
+    non-zero value (e.g., records start mid-activity).  Distance deltas
+    are computed by :func:`_iter_record_deltas` which correctly resets
+    its ``prev_dist`` tracker when ``distance_m`` disappears and snaps
+    the baseline when it reappears, preventing cumulative drift in
+    activities with intermittent ``distance_m`` data.
 
     When ``distance_m`` is NULL, horizontal distance for the grade
     computation is also estimated from ``speed_mps * Δelapsed_time_s``
@@ -838,27 +837,16 @@ def _enrich_records_with_grade(records: list[dict]) -> list[dict]:
     # Preserve the absolute baseline when the first record has distance_m.
     first_dist = records[0].get("distance_m") if records else None
     cumulative_dist_m = first_dist if first_dist is not None else 0.0
-    for i, rec in enumerate(records):
+    deltas = _iter_record_deltas(records)
+    for i, (rec, (dist, _spd)) in enumerate(
+        zip(records, deltas),
+    ):
         r = dict(rec)
         r["grade"] = 0.0
-        dist = 0.0
-        if i > 0:
-            prev = records[i - 1]
+        if i > 0 and dist > 0:
             alt = rec.get("altitude_m")
-            prev_alt = prev.get("altitude_m")
-            # Compute horizontal distance delta with speed*Δt fallback
-            d = rec.get("distance_m")
-            d_prev = prev.get("distance_m")
-            if d is not None and d_prev is not None:
-                dist = d - d_prev
-            else:
-                spd = rec.get("speed_mps")
-                t = rec.get("elapsed_time_s")
-                t_prev = prev.get("elapsed_time_s")
-                if spd is not None and spd > 0 and t is not None and t_prev is not None:
-                    dist = spd * max(t - t_prev, 0.0)
-            dist = max(dist, 0.0)
-            if alt is not None and prev_alt is not None and dist > 0:
+            prev_alt = records[i - 1].get("altitude_m")
+            if alt is not None and prev_alt is not None:
                 r["grade"] = ((alt - prev_alt) / dist) * 100.0
         cumulative_dist_m += dist
         r["_cumulative_dist_m"] = cumulative_dist_m
