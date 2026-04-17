@@ -393,6 +393,13 @@ class TestTrailItraScore:
         )
         assert "error" in result
 
+        # Also reject activity_id with only elevation or time
+        result2 = trail_itra_score(
+            activity_id=1,
+            elevation_gain_m=500.0,
+        )
+        assert "error" in result2
+
     def test_no_params_error(self):
         from athletehub.mcp.trail_tools import trail_itra_score
 

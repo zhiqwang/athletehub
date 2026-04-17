@@ -796,7 +796,8 @@ def trail_itra_score(
     logarithmic coefficient calibrated against published ITRA results.
     """
 
-    if activity_id is not None and distance_km is not None:
+    manual_given = any(x is not None for x in [distance_km, elevation_gain_m, finish_time_minutes])
+    if activity_id is not None and manual_given:
         return {
             "source": "input",
             "error": (
