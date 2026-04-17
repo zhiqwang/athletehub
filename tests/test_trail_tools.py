@@ -325,3 +325,111 @@ class TestTrailCutoffRisk:
             cutoff_time_minutes=60.0,  # 1 hour — impossibly tight
         )
         assert result["risk_label"] == "likely_dnf"
+
+
+# ---------------------------------------------------------------------------
+# 6. trail_itra_score
+# ---------------------------------------------------------------------------
+
+
+class TestTrailItraScore:
+    def test_from_activity(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(activity_id=_get_activity_id())
+        assert "itra_score" in result
+        assert 0 <= result["itra_score"] <= 1000
+        assert "km_effort" in result
+        assert "itra_category" in result
+        assert "level" in result
+        assert "speed_km_effort_per_h" in result
+        assert "finish_time_formatted" in result
+        assert result["activity_id"] == _get_activity_id()
+
+    def test_manual_params(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            distance_km=50.0,
+            elevation_gain_m=3000.0,
+            finish_time_minutes=480.0,  # 8 hours
+        )
+        assert "itra_score" in result
+        assert 0 <= result["itra_score"] <= 1000
+        assert result["km_effort"] == 80.0  # 50 + 3000/100
+        assert result["itra_category"] == "M"
+        assert "activity_id" not in result
+
+    def test_manual_no_elevation(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            distance_km=42.195,
+            finish_time_minutes=240.0,  # 4 hours
+        )
+        assert "itra_score" in result
+        assert result["elevation_gain_m"] == 0.0
+        assert result["km_effort"] == 42.2  # 42.195 rounded
+
+    def test_utmb_elite(self):
+        """Cross-check: UTMB-like elite performance → ~950+ score."""
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            distance_km=171.0,
+            elevation_gain_m=10000.0,
+            finish_time_minutes=19.0 * 60 + 50,  # ~19:50
+        )
+        assert result["itra_score"] >= 900
+        assert result["level"] == "world_elite"
+        assert result["itra_category"] == "XXL"
+
+    def test_both_params_error(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            activity_id=1,
+            distance_km=10.0,
+        )
+        assert "error" in result
+
+    def test_no_params_error(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score()
+        assert "error" in result
+
+    def test_invalid_distance(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(distance_km=-5.0, finish_time_minutes=60.0)
+        assert "error" in result
+
+    def test_missing_time(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(distance_km=10.0)
+        assert "error" in result
+
+    def test_nonexistent_activity(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(activity_id=99999)
+        assert result.get("source") == "activity"
+        assert "error" in result
+
+    def test_score_increases_with_speed(self):
+        """Faster finish time → higher score for the same course."""
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        slow = trail_itra_score(
+            distance_km=50.0,
+            elevation_gain_m=3000.0,
+            finish_time_minutes=600.0,
+        )
+        fast = trail_itra_score(
+            distance_km=50.0,
+            elevation_gain_m=3000.0,
+            finish_time_minutes=300.0,
+        )
+        assert fast["itra_score"] > slow["itra_score"]

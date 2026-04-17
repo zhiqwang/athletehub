@@ -775,6 +775,143 @@ def trail_cutoff_risk(
 
 
 # ---------------------------------------------------------------------------
+# 6. trail_itra_score
+# ---------------------------------------------------------------------------
+
+
+def trail_itra_score(
+    activity_id: int | None = None,
+    distance_km: float | None = None,
+    elevation_gain_m: float | None = None,
+    finish_time_minutes: float | None = None,
+) -> dict:
+    """Estimate ITRA Performance Index (race score) for a single race.
+
+    Provide *either* ``activity_id`` to use stored activity data, *or*
+    manual race parameters (``distance_km``, ``elevation_gain_m``,
+    ``finish_time_minutes``).
+
+    The score (0–1000) is computed from **km-effort**
+    (``distance_km + elevation_gain_m / 100``) and finish time using a
+    logarithmic coefficient calibrated against published ITRA results.
+    """
+
+    if activity_id is not None and distance_km is not None:
+        return {
+            "source": "input",
+            "error": (
+                "Provide either activity_id or manual parameters"
+                " (distance_km / elevation_gain_m / finish_time_minutes),"
+                " not both"
+            ),
+        }
+
+    if activity_id is not None:
+        activity = fetch_one(
+            """
+            SELECT distance_m, elevation_gain_m, elapsed_time_s,
+                   moving_time_s
+            FROM activities WHERE id = ?
+            """,
+            (activity_id,),
+        )
+        if not activity:
+            return {
+                "source": "activity",
+                "activity_id": activity_id,
+                "error": "Activity not found",
+            }
+        dist_m = activity.get("distance_m")
+        if not dist_m or dist_m <= 0:
+            return {
+                "source": "activity",
+                "activity_id": activity_id,
+                "error": "Activity has no distance data",
+            }
+        dist_km = dist_m / 1000.0
+        elev_gain = float(activity.get("elevation_gain_m") or 0.0)
+        # Prefer elapsed_time (includes aid-station stops, matching
+        # ITRA official timing).  Fall back to moving_time.
+        time_s = activity.get("elapsed_time_s") or activity.get("moving_time_s")
+        if not time_s or time_s <= 0:
+            return {
+                "source": "activity",
+                "activity_id": activity_id,
+                "error": "Activity has no time data",
+            }
+        time_min = float(time_s) / 60.0
+
+    elif distance_km is not None:
+        if distance_km <= 0:
+            return {
+                "source": "input",
+                "error": "distance_km must be positive",
+            }
+        if finish_time_minutes is None or finish_time_minutes <= 0:
+            return {
+                "source": "input",
+                "error": "finish_time_minutes must be positive",
+            }
+        dist_km = distance_km
+        elev_gain = float(elevation_gain_m or 0.0)
+        time_min = finish_time_minutes
+    else:
+        return {
+            "source": "input",
+            "error": ("Provide either activity_id or distance_km with finish_time_minutes"),
+        }
+
+    return _compute_itra_score(dist_km, elev_gain, time_min, activity_id=activity_id)
+
+
+def _compute_itra_score(
+    dist_km: float,
+    elev_gain: float,
+    time_min: float,
+    *,
+    activity_id: int | None = None,
+) -> dict:
+    """Core ITRA score computation shared by the public API."""
+
+    km_effort = dist_km + elev_gain / 100.0
+    time_h = time_min / 60.0
+    speed_kmeh = km_effort / time_h
+
+    category = _itra_category(km_effort)
+
+    # Scoring coefficient calibrated from published ITRA race results.
+    # The logarithmic term accounts for the fact that maintaining a
+    # given km-effort speed is harder at longer distances.
+    coeff = 42.0 + 5.0 * math.log(max(km_effort, 1.0))
+    raw_score = speed_kmeh * coeff
+    score = max(0, min(1000, round(raw_score)))
+
+    label = _itra_level_label(score)
+
+    result: dict = {
+        "distance_km": round(dist_km, 2),
+        "elevation_gain_m": round(elev_gain, 0),
+        "finish_time_minutes": round(time_min, 1),
+        "finish_time_formatted": format_duration(time_min * 60),
+        "km_effort": round(km_effort, 1),
+        "itra_category": category,
+        "speed_km_effort_per_h": round(speed_kmeh, 2),
+        "itra_score": score,
+        "level": label,
+        "note": (
+            "Approximate score based on the ITRA km-effort methodology."
+            " Official ITRA scores may differ due to course certification"
+            " and proprietary adjustments."
+        ),
+    }
+
+    if activity_id is not None:
+        result["activity_id"] = activity_id
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Private helpers – existing
 # ---------------------------------------------------------------------------
 
@@ -798,6 +935,42 @@ def _trail_recommendation(total_distance_km: float, total_climb_m: float) -> str
         "Recent trail volume includes meaningful climbing."
         " Focus next on terrain specificity and downhill resilience."
     )
+
+
+def _itra_category(km_effort: float) -> str:
+    """Return the ITRA distance category for a given km-effort value."""
+    if km_effort <= 24:
+        return "XXS"
+    if km_effort <= 44:
+        return "XS"
+    if km_effort <= 74:
+        return "S"
+    if km_effort <= 114:
+        return "M"
+    if km_effort <= 154:
+        return "L"
+    if km_effort <= 209:
+        return "XL"
+    return "XXL"
+
+
+def _itra_level_label(score: int) -> str:
+    """Return a human-readable level label for an ITRA score."""
+    if score >= 900:
+        return "world_elite"
+    if score >= 800:
+        return "elite"
+    if score >= 700:
+        return "sub_elite"
+    if score >= 600:
+        return "competitive"
+    if score >= 500:
+        return "experienced"
+    if score >= 400:
+        return "recreational"
+    if score >= 300:
+        return "beginner"
+    return "novice"
 
 
 # ---------------------------------------------------------------------------
