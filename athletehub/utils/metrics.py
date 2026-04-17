@@ -61,3 +61,39 @@ def estimate_training_load(
     )
     effective_intensity = intensity_factor if intensity_factor is not None else 0.75
     return round(duration_minutes * effective_intensity, 1)
+
+
+def hr_zone_for_bpm(
+    hr_bpm: float | None,
+    max_hr_bpm: float | None = None,
+    threshold_hr_bpm: float | None = None,
+) -> int:
+    """Return a heart-rate zone (0-5) for the given *hr_bpm*.
+
+    Returns 0 when *hr_bpm* is ``None`` and no zone can be determined.
+    Otherwise returns a zone from 1 to 5.
+
+    Zone boundaries are derived from *threshold_hr_bpm* when available,
+    otherwise from *max_hr_bpm*. Falls back to a generic 165 bpm
+    reference if neither is provided.
+    """
+    if hr_bpm is None:
+        return 0
+
+    if threshold_hr_bpm and threshold_hr_bpm > 0:
+        reference = threshold_hr_bpm
+    elif max_hr_bpm and max_hr_bpm > 0:
+        reference = max_hr_bpm * 0.88
+    else:
+        reference = 165.0
+
+    ratio = hr_bpm / reference
+    if ratio < 0.72:
+        return 1
+    if ratio < 0.82:
+        return 2
+    if ratio < 0.92:
+        return 3
+    if ratio < 1.02:
+        return 4
+    return 5
