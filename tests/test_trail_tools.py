@@ -548,6 +548,8 @@ class TestTrailItraScore:
 
     def test_proximity_weight_decreases_with_km_effort_gap(self):
         """A reference race far in km-effort contributes less (lower weight)."""
+        import math
+
         from athletehub.mcp.trail_tools import _calibrate_from_past_races
 
         _, refs_near = _calibrate_from_past_races(
@@ -573,6 +575,11 @@ class TestTrailItraScore:
             ],
         )
         assert refs_near[0]["proximity_weight"] > refs_far[0]["proximity_weight"]
+        # Identical km-effort → weight must be exactly 1.0 (Gaussian peak)
+        assert refs_near[0]["proximity_weight"] == 1.0
+        # 50 km-effort gap (80 - 30) with σ=30 → weight ≈ exp(-0.5*(50/30)²) ≈ 0.057
+        expected_far = round(math.exp(-0.5 * (50.0 / 30.0) ** 2), 3)
+        assert refs_far[0]["proximity_weight"] == pytest.approx(expected_far, abs=0.001)
 
     def test_invalid_past_race_entries_skipped(self):
         """Malformed or out-of-range past_race_scores entries are silently ignored."""
@@ -607,3 +614,4 @@ class TestTrailItraScore:
         # The seeded activity was inserted 30 days ago, default days=180
         assert ts["activities_analyzed"] >= 1
         assert ts["avg_trail_speed_km_effort_per_h"] is not None
+        assert ts["avg_trail_speed_km_effort_per_h"] > 0
