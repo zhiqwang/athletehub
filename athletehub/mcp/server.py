@@ -191,11 +191,17 @@ def build_server():
         distance_km: float | None = None,
         elevation_gain_m: float | None = None,
         finish_time_minutes: float | None = None,
+        past_race_scores: list[dict] | None = None,
+        days: int = 180,
     ) -> dict:
-        """Estimate ITRA Performance Index (race score) for a race.
+        """Estimate ITRA Performance Index (race score), calibrated from personal history.
 
-        Provide either an activity_id or manual parameters
+        Provide either activity_id or manual parameters
         (distance_km, elevation_gain_m, finish_time_minutes).
+
+        Optionally pass past_race_scores – a list of dicts with
+        distance_km, elevation_gain_m, finish_time_minutes, and itra_score –
+        to calibrate the generic formula to this specific athlete.
         """
 
         return trail_itra_score_tool(
@@ -203,6 +209,8 @@ def build_server():
             distance_km=distance_km,
             elevation_gain_m=elevation_gain_m,
             finish_time_minutes=finish_time_minutes,
+            past_race_scores=past_race_scores,
+            days=days,
         )
 
     @server.tool()

@@ -784,16 +784,38 @@ def trail_itra_score(
     distance_km: float | None = None,
     elevation_gain_m: float | None = None,
     finish_time_minutes: float | None = None,
+    past_race_scores: list[dict] | None = None,
+    days: int = 180,
 ) -> dict:
-    """Estimate ITRA Performance Index (race score) for a single race.
+    """Estimate ITRA Performance Index (race score), calibrated from personal history.
 
-    Provide *either* ``activity_id`` to use stored activity data, *or*
-    manual race parameters (``distance_km``, ``elevation_gain_m``,
+    Provide *either* ``activity_id`` to use stored activity data, *or* manual
+    race parameters (``distance_km``, ``elevation_gain_m``,
     ``finish_time_minutes``).
 
-    The score (0–1000) is computed from **km-effort**
-    (``distance_km + elevation_gain_m / 100``) and finish time using a
-    logarithmic coefficient calibrated against published ITRA results.
+    **Calibration** – pass ``past_race_scores`` as a list of dicts, each
+    containing the official ITRA score you received for a past race::
+
+        [
+          {
+            "distance_km": 50.0,
+            "elevation_gain_m": 3000.0,
+            "finish_time_minutes": 480.0,
+            "itra_score": 635,
+          },
+          ...
+        ]
+
+    Each reference race's actual-vs-formula ratio is used to derive a
+    *personal calibration factor* that corrects the generic km-effort formula
+    for this specific athlete.  Reference races are weighted by their
+    km-effort proximity to the current race (Gaussian kernel, σ = 30
+    km-effort units), so races of similar difficulty contribute more.
+
+    **Training context** – recent trail activities (last ``days`` days) are
+    always fetched and summarised.  The average training km-effort speed
+    provides an independent fitness signal and influences the ``confidence``
+    label.
     """
 
     manual_given = any(x is not None for x in [distance_km, elevation_gain_m, finish_time_minutes])
@@ -859,35 +881,55 @@ def trail_itra_score(
     else:
         return {
             "source": "input",
-            "error": ("Provide either activity_id or distance_km with finish_time_minutes"),
+            "error": "Provide either activity_id or distance_km with finish_time_minutes",
         }
 
-    return _compute_itra_score(dist_km, elev_gain, time_min, activity_id=activity_id)
-
-
-def _compute_itra_score(
-    dist_km: float,
-    elev_gain: float,
-    time_min: float,
-    *,
-    activity_id: int | None = None,
-) -> dict:
-    """Core ITRA score computation shared by the public API."""
-
+    # --- Core computation ---
     km_effort = dist_km + elev_gain / 100.0
     time_h = time_min / 60.0
     speed_kmeh = km_effort / time_h
+    base_raw = _itra_formula_raw(km_effort, speed_kmeh)
+    base_score = max(0, min(1000, round(base_raw)))
 
-    category = _itra_category(km_effort)
+    # --- Training history context ---
+    training_summary = _fetch_training_summary(days)
 
-    # Scoring coefficient calibrated from published ITRA race results.
-    # The logarithmic term accounts for the fact that maintaining a
-    # given km-effort speed is harder at longer distances.
-    coeff = 42.0 + 5.0 * math.log(max(km_effort, 1.0))
-    raw_score = speed_kmeh * coeff
-    score = max(0, min(1000, round(raw_score)))
+    # --- Personal calibration from past races ---
+    calibration_factor = 1.0
+    method = "formula_only"
+    reference_races_used = 0
+    processed_refs: list[dict] | None = None
 
-    label = _itra_level_label(score)
+    if past_race_scores:
+        valid_refs = _validate_past_race_scores(past_race_scores)
+        if valid_refs:
+            calibration_factor, processed_refs = _calibrate_from_past_races(km_effort, valid_refs)
+            reference_races_used = len(valid_refs)
+            method = "race_calibrated"
+
+    # --- Final score ---
+    final_score = max(0, min(1000, round(base_raw * calibration_factor)))
+
+    # Confidence: driven primarily by number of reference races
+    if reference_races_used >= 3:
+        confidence = "high"
+    elif reference_races_used >= 1:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    if method == "formula_only":
+        note = (
+            "Score from the generic ITRA km-effort formula only."
+            " Pass past_race_scores with known ITRA results for a"
+            " personalised calibration."
+        )
+    else:
+        note = (
+            f"Score calibrated from {reference_races_used} personal reference"
+            " race(s). Official ITRA scores may still differ due to course"
+            " certification and proprietary adjustments."
+        )
 
     result: dict = {
         "distance_km": round(dist_km, 2),
@@ -895,17 +937,21 @@ def _compute_itra_score(
         "finish_time_minutes": round(time_min, 1),
         "finish_time_formatted": format_duration(time_min * 60),
         "km_effort": round(km_effort, 1),
-        "itra_category": category,
+        "itra_category": _itra_category(km_effort),
         "speed_km_effort_per_h": round(speed_kmeh, 2),
-        "itra_score": score,
-        "level": label,
-        "note": (
-            "Approximate score based on the ITRA km-effort methodology."
-            " Official ITRA scores may differ due to course certification"
-            " and proprietary adjustments."
-        ),
+        "base_formula_score": base_score,
+        "itra_score": final_score,
+        "calibration_factor": round(calibration_factor, 3),
+        "method": method,
+        "reference_races_used": reference_races_used,
+        "confidence": confidence,
+        "level": _itra_level_label(final_score),
+        "training_summary": training_summary,
+        "note": note,
     }
 
+    if processed_refs is not None:
+        result["reference_races"] = processed_refs
     if activity_id is not None:
         result["activity_id"] = activity_id
 
@@ -972,6 +1018,141 @@ def _itra_level_label(score: int) -> str:
     if score >= 300:
         return "beginner"
     return "novice"
+
+
+def _itra_formula_raw(km_effort: float, speed_kmeh: float) -> float:
+    """Return the unrounded ITRA formula score.
+
+    The logarithmic coefficient accounts for the fact that maintaining a
+    given km-effort speed is harder at longer distances.
+    """
+    coeff = 42.0 + 5.0 * math.log(max(km_effort, 1.0))
+    return speed_kmeh * coeff
+
+
+def _fetch_training_summary(days: int) -> dict:
+    """Summarise recent trail training as a fitness context signal.
+
+    Returns average km-effort speed across recent trail activities plus
+    a count of activities analysed.  Activities without usable distance or
+    time are silently skipped.
+    """
+    window = max(days, 1)
+    since = (date.today() - timedelta(days=window - 1)).isoformat()
+
+    acts = fetch_all(
+        """
+        SELECT distance_m, elevation_gain_m, elapsed_time_s, moving_time_s
+        FROM activities
+        WHERE date(started_at) >= ?
+          AND sport IN ('trail_run', 'hike', 'ultra_trail')
+          AND distance_m > 0
+        ORDER BY started_at DESC
+        LIMIT ?
+        """,
+        (since, _MAX_ACTIVITIES_FOR_RECORDS),
+    )
+
+    speeds: list[float] = []
+    for act in acts:
+        dist_m = act.get("distance_m") or 0.0
+        elev_m = act.get("elevation_gain_m") or 0.0
+        t_s = float(act.get("elapsed_time_s") or act.get("moving_time_s") or 0.0)
+        if dist_m <= 0 or t_s <= 0:
+            continue
+        km_eff = dist_m / 1000.0 + elev_m / 100.0
+        speeds.append(km_eff / (t_s / 3600.0))
+
+    avg_speed = safe_mean(speeds)
+    return {
+        "activities_analyzed": len(speeds),
+        "period_days": window,
+        "avg_trail_speed_km_effort_per_h": round(avg_speed, 2) if avg_speed is not None else None,
+    }
+
+
+def _validate_past_race_scores(raw: list[dict]) -> list[dict]:
+    """Return valid entries from a user-supplied past_race_scores list.
+
+    Each entry must have ``distance_km`` > 0, ``finish_time_minutes`` > 0 and
+    ``itra_score`` in (0, 1000].  Invalid or malformed entries are silently
+    skipped.
+    """
+    valid: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            d = float(entry.get("distance_km") or 0.0)
+            e = float(entry.get("elevation_gain_m") or 0.0)
+            t = float(entry.get("finish_time_minutes") or 0.0)
+            s = float(entry.get("itra_score") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if d <= 0 or t <= 0 or s <= 0 or s > 1000:
+            continue
+        valid.append(
+            {
+                "distance_km": d,
+                "elevation_gain_m": max(e, 0.0),
+                "finish_time_minutes": t,
+                "itra_score": s,
+            }
+        )
+    return valid
+
+
+def _calibrate_from_past_races(
+    km_effort_current: float,
+    refs: list[dict],
+) -> tuple[float, list[dict]]:
+    """Derive a personal calibration factor from races with known ITRA scores.
+
+    For each reference race the ratio *actual / formula* is computed.
+    Ratios are combined as a weighted mean where the weight is a Gaussian
+    function of the km-effort distance between the reference race and the
+    current race (σ = 30 km-effort units).  This gives more influence to
+    reference races of similar difficulty.
+
+    The returned factor is clamped to [0.6, 1.4] (±40 %) to prevent
+    runaway corrections from a single outlier reference.
+    """
+    processed: list[dict] = []
+    weighted_sum = 0.0
+    weight_total = 0.0
+
+    for ref in refs:
+        km_eff_ref = ref["distance_km"] + ref["elevation_gain_m"] / 100.0
+        speed_ref = km_eff_ref / (ref["finish_time_minutes"] / 60.0)
+        formula_raw = _itra_formula_raw(km_eff_ref, speed_ref)
+        formula_score = max(0, min(1000, round(formula_raw)))
+
+        ratio = ref["itra_score"] / formula_raw if formula_raw > 0 else 1.0
+
+        # Gaussian proximity weight: σ = 30 km-effort units
+        km_eff_diff = abs(km_eff_ref - km_effort_current)
+        weight = math.exp(-0.5 * (km_eff_diff / 30.0) ** 2)
+
+        weighted_sum += ratio * weight
+        weight_total += weight
+
+        processed.append(
+            {
+                "distance_km": ref["distance_km"],
+                "elevation_gain_m": ref["elevation_gain_m"],
+                "finish_time_minutes": ref["finish_time_minutes"],
+                "km_effort": round(km_eff_ref, 1),
+                "known_itra_score": int(ref["itra_score"]),
+                "formula_score": formula_score,
+                "calibration_ratio": round(ratio, 3),
+                "proximity_weight": round(weight, 3),
+            }
+        )
+
+    raw_factor = (weighted_sum / weight_total) if weight_total > 0 else 1.0
+    # Clamp to ±40 % to guard against single-outlier over-correction.
+    calibration_factor = max(0.6, min(1.4, raw_factor))
+    return calibration_factor, processed
 
 
 # ---------------------------------------------------------------------------
