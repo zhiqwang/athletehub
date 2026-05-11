@@ -325,3 +325,293 @@ class TestTrailCutoffRisk:
             cutoff_time_minutes=60.0,  # 1 hour — impossibly tight
         )
         assert result["risk_label"] == "likely_dnf"
+
+
+# ---------------------------------------------------------------------------
+# 6. trail_itra_score
+# ---------------------------------------------------------------------------
+
+
+class TestTrailItraScore:
+    def test_from_activity(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(activity_id=_get_activity_id())
+        assert "itra_score" in result
+        assert 0 <= result["itra_score"] <= 1000
+        assert "km_effort" in result
+        assert "itra_category" in result
+        assert "level" in result
+        assert "speed_km_effort_per_h" in result
+        assert "finish_time_formatted" in result
+        assert result["activity_id"] == _get_activity_id()
+
+    def test_manual_params(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            distance_km=50.0,
+            elevation_gain_m=3000.0,
+            finish_time_minutes=480.0,  # 8 hours
+        )
+        assert "itra_score" in result
+        assert 0 <= result["itra_score"] <= 1000
+        assert result["km_effort"] == 80.0  # 50 + 3000/100
+        assert result["itra_category"] == "M"
+        assert "activity_id" not in result
+
+    def test_manual_no_elevation(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            distance_km=42.195,
+            finish_time_minutes=240.0,  # 4 hours
+        )
+        assert "itra_score" in result
+        assert result["elevation_gain_m"] == 0.0
+        assert result["km_effort"] == 42.2  # 42.195 rounded
+
+    def test_utmb_elite(self):
+        """Cross-check: UTMB-like elite performance → ~950+ score."""
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            distance_km=171.0,
+            elevation_gain_m=10000.0,
+            finish_time_minutes=19.0 * 60 + 50,  # ~19:50
+        )
+        assert result["itra_score"] >= 900
+        assert result["level"] == "world_elite"
+        assert result["itra_category"] == "XXL"
+
+    def test_both_params_error(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            activity_id=1,
+            distance_km=10.0,
+        )
+        assert "error" in result
+
+        # Also reject activity_id with only elevation or time
+        result2 = trail_itra_score(
+            activity_id=1,
+            elevation_gain_m=500.0,
+        )
+        assert "error" in result2
+
+    def test_no_params_error(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score()
+        assert "error" in result
+
+    def test_invalid_distance(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(distance_km=-5.0, finish_time_minutes=60.0)
+        assert "error" in result
+
+    def test_missing_time(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(distance_km=10.0)
+        assert "error" in result
+
+    def test_nonexistent_activity(self):
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(activity_id=99999)
+        assert result.get("source") == "activity"
+        assert "error" in result
+
+    def test_score_increases_with_speed(self):
+        """Faster finish time → higher score for the same course."""
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        slow = trail_itra_score(
+            distance_km=50.0,
+            elevation_gain_m=3000.0,
+            finish_time_minutes=600.0,
+        )
+        fast = trail_itra_score(
+            distance_km=50.0,
+            elevation_gain_m=3000.0,
+            finish_time_minutes=300.0,
+        )
+        assert fast["itra_score"] > slow["itra_score"]
+
+    # --- New fields present even without calibration ---
+
+    def test_formula_only_new_fields(self):
+        """Without past_race_scores the new meta-fields are present."""
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            distance_km=50.0,
+            elevation_gain_m=3000.0,
+            finish_time_minutes=480.0,
+        )
+        assert result["method"] == "formula_only"
+        assert result["calibration_factor"] == 1.0
+        assert result["reference_races_used"] == 0
+        assert result["confidence"] == "low"
+        # formula_only: itra_score == base_formula_score
+        assert result["itra_score"] == result["base_formula_score"]
+        assert "training_summary" in result
+        assert "reference_races" not in result
+
+    # --- Race-calibrated path ---
+
+    def test_race_calibrated_single_ref(self):
+        """One past race → confidence=medium, score shifts by calibration factor."""
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        # Suppose the formula gives ~636 for this race; if the athlete
+        # actually scored 680, calibration_factor ≈ 1.069.
+        result = trail_itra_score(
+            distance_km=50.0,
+            elevation_gain_m=3000.0,
+            finish_time_minutes=480.0,
+            past_race_scores=[
+                {
+                    "distance_km": 50.0,
+                    "elevation_gain_m": 3000.0,
+                    "finish_time_minutes": 480.0,
+                    "itra_score": 680,
+                }
+            ],
+        )
+        assert result["method"] == "race_calibrated"
+        assert result["reference_races_used"] == 1
+        assert result["confidence"] == "medium"
+        assert result["calibration_factor"] > 1.0
+        assert result["itra_score"] > result["base_formula_score"]
+        assert "reference_races" in result
+        assert len(result["reference_races"]) == 1
+        ref = result["reference_races"][0]
+        assert ref["known_itra_score"] == 680
+        assert ref["proximity_weight"] == 1.0  # identical km-effort → weight=1
+
+    def test_race_calibrated_three_refs_high_confidence(self):
+        """Three reference races → confidence=high."""
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            distance_km=80.0,
+            elevation_gain_m=4000.0,
+            finish_time_minutes=600.0,
+            past_race_scores=[
+                {
+                    "distance_km": 50.0,
+                    "elevation_gain_m": 3000.0,
+                    "finish_time_minutes": 480.0,
+                    "itra_score": 630,
+                },
+                {
+                    "distance_km": 80.0,
+                    "elevation_gain_m": 4500.0,
+                    "finish_time_minutes": 620.0,
+                    "itra_score": 645,
+                },
+                {
+                    "distance_km": 60.0,
+                    "elevation_gain_m": 3500.0,
+                    "finish_time_minutes": 510.0,
+                    "itra_score": 640,
+                },
+            ],
+        )
+        assert result["method"] == "race_calibrated"
+        assert result["reference_races_used"] == 3
+        assert result["confidence"] == "high"
+        assert 0 <= result["itra_score"] <= 1000
+
+    def test_calibration_factor_clamped(self):
+        """An extreme known_itra_score must not push factor outside [0.6, 1.4]."""
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            distance_km=50.0,
+            elevation_gain_m=3000.0,
+            finish_time_minutes=480.0,
+            past_race_scores=[
+                {
+                    "distance_km": 50.0,
+                    "elevation_gain_m": 3000.0,
+                    "finish_time_minutes": 480.0,
+                    "itra_score": 1000,  # artificially perfect
+                }
+            ],
+        )
+        assert result["calibration_factor"] <= 1.4
+
+    def test_proximity_weight_decreases_with_km_effort_gap(self):
+        """A reference race far in km-effort contributes less (lower weight)."""
+        import math
+
+        from athletehub.mcp.trail_tools import _calibrate_from_past_races
+
+        _, refs_near = _calibrate_from_past_races(
+            80.0,
+            [
+                {
+                    "distance_km": 80.0,
+                    "elevation_gain_m": 0.0,
+                    "finish_time_minutes": 600.0,
+                    "itra_score": 650,
+                }
+            ],
+        )
+        _, refs_far = _calibrate_from_past_races(
+            80.0,
+            [
+                {
+                    "distance_km": 30.0,
+                    "elevation_gain_m": 0.0,
+                    "finish_time_minutes": 300.0,
+                    "itra_score": 650,
+                }
+            ],
+        )
+        assert refs_near[0]["proximity_weight"] > refs_far[0]["proximity_weight"]
+        # Identical km-effort → weight must be exactly 1.0 (Gaussian peak)
+        assert refs_near[0]["proximity_weight"] == 1.0
+        # 50 km-effort gap (80 - 30) with σ=30 → weight ≈ exp(-0.5*(50/30)²) ≈ 0.057
+        expected_far = round(math.exp(-0.5 * (50.0 / 30.0) ** 2), 3)
+        assert refs_far[0]["proximity_weight"] == pytest.approx(expected_far, abs=0.001)
+
+    def test_invalid_past_race_entries_skipped(self):
+        """Malformed or out-of-range past_race_scores entries are silently ignored."""
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            distance_km=50.0,
+            elevation_gain_m=3000.0,
+            finish_time_minutes=480.0,
+            past_race_scores=[
+                {"distance_km": -1.0, "finish_time_minutes": 300.0, "itra_score": 600},
+                {"distance_km": 50.0, "finish_time_minutes": 300.0, "itra_score": 2000},
+                "not a dict",
+                None,
+            ],
+        )
+        # All entries invalid → falls back to formula_only
+        assert result["method"] == "formula_only"
+        assert result["reference_races_used"] == 0
+
+    def test_training_summary_included(self):
+        """training_summary is always present and has expected keys."""
+        from athletehub.mcp.trail_tools import trail_itra_score
+
+        result = trail_itra_score(
+            activity_id=_get_activity_id(),
+        )
+        ts = result["training_summary"]
+        assert "activities_analyzed" in ts
+        assert "period_days" in ts
+        assert "avg_trail_speed_km_effort_per_h" in ts
+        # The seeded activity was inserted 30 days ago, default days=180
+        assert ts["activities_analyzed"] >= 1
+        assert ts["avg_trail_speed_km_effort_per_h"] is not None
+        assert ts["avg_trail_speed_km_effort_per_h"] > 0

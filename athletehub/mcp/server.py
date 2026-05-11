@@ -17,6 +17,7 @@ from athletehub.mcp.trail_tools import trail_climb_efficiency as trail_climb_eff
 from athletehub.mcp.trail_tools import trail_downhill_risk as trail_downhill_risk_tool
 from athletehub.mcp.trail_tools import trail_hiking_ratio as trail_hiking_ratio_tool
 from athletehub.mcp.trail_tools import trail_cutoff_risk as trail_cutoff_risk_tool
+from athletehub.mcp.trail_tools import trail_itra_score as trail_itra_score_tool
 from athletehub.mcp.training_tools import summarize_training_load
 from athletehub.sync.coros_sync import sync_coros
 
@@ -182,6 +183,34 @@ def build_server():
             intermediate_cutoffs=intermediate_cutoffs,
             days=days,
             expected_temperature_c=expected_temperature_c,
+        )
+
+    @server.tool()
+    def trail_itra_score(
+        activity_id: int | None = None,
+        distance_km: float | None = None,
+        elevation_gain_m: float | None = None,
+        finish_time_minutes: float | None = None,
+        past_race_scores: list[dict] | None = None,
+        days: int = 180,
+    ) -> dict:
+        """Estimate ITRA Performance Index (race score), calibrated from personal history.
+
+        Provide either activity_id or manual parameters
+        (distance_km, elevation_gain_m, finish_time_minutes).
+
+        Optionally pass past_race_scores – a list of dicts with
+        distance_km, elevation_gain_m, finish_time_minutes, and itra_score –
+        to calibrate the generic formula to this specific athlete.
+        """
+
+        return trail_itra_score_tool(
+            activity_id=activity_id,
+            distance_km=distance_km,
+            elevation_gain_m=elevation_gain_m,
+            finish_time_minutes=finish_time_minutes,
+            past_race_scores=past_race_scores,
+            days=days,
         )
 
     @server.tool()
